@@ -1,39 +1,33 @@
 #!/usr/bin/env bash
-# Compile on lyco-server and pull the bitstreams back.
-#
-#   ./build.sh [project]     default: blink
-#   PLAIN=1 ./build.sh       force plain output (no TUI)
-#
-# With a TTY this launches the live build monitor in tools/buildui.py.
+# Sync sources to lyco-server, compile with Quartus, pull the bitstream back.
 set -euo pipefail
 
-PROJ=${1:-blink}
 REMOTE=lyco
 RDIR=lycochip-build
+PROJ=${1:-blink}
 QBIN='$HOME/intelFPGA_lite/20.1/quartus/bin'
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -t 1 ] && [ -z "${PLAIN:-}" ] && command -v python3 >/dev/null; then
-    exec python3 "$HERE/tools/buildui.py" "$PROJ"
-fi
-
-# ---- plain fallback -------------------------------------------------------
 echo "==> syncing sources to $REMOTE:~/$RDIR"
 ssh "$REMOTE" "mkdir -p ~/$RDIR"
 rsync -az --delete \
   --include='rtl/***' --include='*.qsf' --include='*.sdc' --include='*.qpf' \
   --exclude='*' ./ "$REMOTE:$RDIR/"
 
-echo "==> compiling $PROJ"
+echo "==> compiling $PROJ (this is the slow step)"
 ssh "$REMOTE" "cd ~/$RDIR && PATH=$QBIN:\$PATH quartus_sh --flow compile $PROJ"
 
-echo "==> generating SVF"
+# openFPGALoader's own Altera SRAM path reports success but does NOT configure
+# this Cyclone IV. Generate an SVF carrying Intel's own JTAG sequence instead.
+echo "==> generating SVF (the load path that actually works)"
 ssh "$REMOTE" "cd ~/$RDIR && PATH=$QBIN:\$PATH quartus_cpf -c -q 12.0MHz -g 3.3 -n p $PROJ.sof $PROJ.svf" >/dev/null
 
 echo "==> fetching bitstreams"
 mkdir -p output_files
 for ext in sof rbf svf; do
-  rsync -az "$REMOTE:$RDIR/$PROJ.$ext" output_files/ 2>/dev/null || echo "   (no .$ext)"
+  rsync -az "$REMOTE:$RDIR/$PROJ.$ext"              output_files/ 2>/dev/null \
+    || rsync -az "$REMOTE:$RDIR/output_files/$PROJ.$ext" output_files/ 2>/dev/null \
+    || echo "   (no .$ext produced)"
 done
 ls -lh output_files/ 2>/dev/null
+
 echo "==> done. Program with: ./program.sh"

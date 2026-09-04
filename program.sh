@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Program the Cyclone IV over the local USB-Blaster.
-#   ./program.sh          -> load into FPGA SRAM (volatile, lost on power cycle)
-#   ./program.sh flash    -> write EPCS/SPI config flash (persists across power cycles)
+#   ./program.sh                -> load into FPGA SRAM (volatile, lost on power cycle)
+#   ./program.sh flash          -> write EPCS/SPI config flash (persists)
+#   ./program.sh detect         -> just check the JTAG chain
+#   ./program.sh sram keytest   -> act on a project other than "blink"
 set -euo pipefail
 
-PROJ=blink
+PROJ=${2:-blink}
 PART=ep4ce622          # EP4CE6E22C8N -> EQFP-144
 CABLE=usb-blaster
 
@@ -24,5 +26,5 @@ case "${1:-sram}" in
     openFPGALoader -c "$CABLE" --detect
     ;;
   *)
-    echo "usage: $0 [sram|flash|detect]" >&2; exit 1 ;;
+    echo "usage: $0 [sram|flash|detect] [project]" >&2; exit 1 ;;
 esac
