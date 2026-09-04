@@ -1,30 +1,62 @@
 #!/usr/bin/env bash
 # Program the Cyclone IV over the local USB-Blaster.
-#   ./program.sh                -> load into FPGA SRAM (volatile, lost on power cycle)
-#   ./program.sh flash          -> write EPCS/SPI config flash (persists)
-#   ./program.sh detect         -> just check the JTAG chain
-#   ./program.sh sram keytest   -> act on a project other than "blink"
+#
+#   ./program.sh                 interactive build picker (arrow keys)
+#   ./program.sh sram  [proj]    latest good build -> FPGA SRAM (volatile)
+#   ./program.sh flash [proj]    latest good build -> EPCS flash (permanent)
+#   ./program.sh detect          just check the JTAG chain
+#
+# Bitstreams always come from builds/, never from a mutable scratch directory,
+# so a failed or stale build can never be flashed by accident.
 set -euo pipefail
 
-PROJ=${2:-blink}
-PART=ep4ce622          # EP4CE6E22C8N -> EQFP-144
 CABLE=usb-blaster
+PART=ep4ce622
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
 
-case "${1:-sram}" in
+# No arguments + a real terminal -> the picker.
+if [ $# -eq 0 ] && [ -t 0 ] && [ -t 1 ] && command -v python3 >/dev/null; then
+    exec python3 tools/programui.py
+fi
+
+MODE=${1:-sram}
+PROJ=${2:-}
+
+if [ "$MODE" = "detect" ]; then
+    exec openFPGALoader -c "$CABLE" --detect
+fi
+
+# Resolve the newest verified build, refusing anything stale or corrupt.
+if ! INFO=$(python3 tools/artifacts.py resolve $PROJ); then
+    echo "refusing to program: ${INFO#ERR	}" >&2
+    echo "run ./build.sh first" >&2
+    exit 1
+fi
+DIR=$(echo "$INFO" | cut -f1); NAME=$(echo "$INFO" | cut -f2)
+WHEN=$(echo "$INFO" | cut -f3); WARN=$(echo "$INFO" | cut -f4)
+
+echo "==> $NAME  (built $WHEN)  $DIR"
+if [ -n "$WARN" ]; then
+    if [ -n "${FORCE:-}" ]; then
+        echo "!!  $WARN  (FORCE set, continuing)" >&2
+    else
+        echo "" >&2
+        echo "REFUSING TO PROGRAM: $WARN" >&2
+        echo "  The board would run logic that does not match your source tree." >&2
+        echo "  Rebuild:            ./build.sh $NAME" >&2
+        echo "  Or override:  FORCE=1 $0 $*" >&2
+        exit 1
+    fi
+fi
+
+case "$MODE" in
   sram)
-    # Use the Quartus-generated SVF. openFPGALoader's native Altera .rbf
-    # SRAM path prints "Load SRAM 100% Done" but leaves the device
-    # unconfigured on this EP4CE6 -- verified the hard way.
-    echo "==> loading $PROJ.svf into FPGA SRAM (volatile)"
-    openFPGALoader -c "$CABLE" --file-type svf "output_files/$PROJ.svf"
-    ;;
+    echo "==> loading $NAME.svf into FPGA SRAM (volatile)"
+    openFPGALoader -c "$CABLE" --file-type svf "$DIR/$NAME.svf" ;;
   flash)
-    echo "==> writing $PROJ.rbf to config flash via spiOverJtag bridge"
-    openFPGALoader -c "$CABLE" -f --fpga-part "$PART" --verify "output_files/$PROJ.rbf"
-    ;;
-  detect)
-    openFPGALoader -c "$CABLE" --detect
-    ;;
+    echo "==> writing $NAME.rbf to EPCS config flash (permanent)"
+    openFPGALoader -c "$CABLE" -f --fpga-part "$PART" --verify "$DIR/$NAME.rbf" ;;
   *)
     echo "usage: $0 [sram|flash|detect] [project]" >&2; exit 1 ;;
 esac

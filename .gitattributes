@@ -1,2 +1,19 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Never let newline normalisation touch a bitstream or a flash image.
+# backup/factory_flash_2MB.bin is the board's irreplaceable factory demo --
+# a mangled copy would be silently useless.
+*.bin binary
+*.sof binary
+*.rbf binary
+*.pof binary
+*.jic binary
+*.qdz binary
+
+# Vendor documentation
+*.pdf binary
+*.xls binary
+*.xlsx binary
+*.jpg binary
+*.png binary

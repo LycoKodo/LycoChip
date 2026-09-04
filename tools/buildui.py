@@ -10,25 +10,30 @@ shows through.
 import os, re, sys, time, shutil, threading, subprocess
 from collections import deque
 
+import artifacts
+
 REMOTE = "lyco"
 RDIR   = "lycochip-build"
 QBIN   = "$HOME/intelFPGA_lite/20.1/quartus/bin"
 
 from theme import (fg, RESET, BOLD, DIM, CYAN, ICE, PINK, VIOLET, DEEP,
                    MUTED, PAPER, AMBER, ROSE, GREEN, BLOCKS,
-                   lerp, heat, bar, graph)
+                   lerp, heat, bar, graph, rule)
+from tui import Raw, getkey, paint
 
 # ---- remote telemetry ----------------------------------------------------
 STAT_CMD = r"""
 CT=""; for h in /sys/class/hwmon/hwmon*; do
   [ "$(cat $h/name 2>/dev/null)" = coretemp ] && CT=$h && break; done
-while :; do
-  echo "@@S"
-  grep '^cpu' /proc/stat
-  grep -E '^(MemTotal|MemAvailable):' /proc/meminfo
-  echo "T $(cat $CT/temp1_input 2>/dev/null || echo 0)"
-  echo "F $(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | paste -sd' ' -)"
-  echo "@@E"
+n=0
+while [ $n -lt 4500 ]; do
+  n=$((n+1))
+  { echo "@@S"
+    grep '^cpu' /proc/stat
+    grep -E '^(MemTotal|MemAvailable):' /proc/meminfo
+    echo "T $(cat $CT/temp1_input 2>/dev/null || echo 0)"
+    echo "F $(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null | paste -sd' ' -)"
+    echo "@@E"; } || exit 0
   sleep 0.4
 done
 """
@@ -44,10 +49,13 @@ class Telemetry(threading.Thread):
         self.hist  = deque(maxlen=240)
         self._prev = {}
         self.alive = True
+        self.proc  = None
 
     def run(self):
-        p = subprocess.Popen(["ssh", REMOTE, STAT_CMD], stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
+        p = subprocess.Popen(
+            ["ssh", "-o", "ControlMaster=no", "-o", "ControlPath=none", REMOTE, STAT_CMD],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+        self.proc = p
         block = []
         for line in p.stdout:
             line = line.strip()
@@ -58,6 +66,16 @@ class Telemetry(threading.Thread):
             else:
                 block.append(line)
         self.alive = False
+
+    def stop(self):
+        """Daemon threads do not reap child processes; kill the ssh explicitly."""
+        p = self.proc
+        if p and p.poll() is None:
+            for finish in (p.terminate, p.kill):
+                try:
+                    finish(); p.wait(timeout=2); break
+                except Exception:
+                    continue
 
     def _parse(self, block):
         cores, tot, mt, ma, tmp, frq = [], None, 0, 0, 0.0, 0.0
@@ -124,6 +142,7 @@ class Build(threading.Thread):
         self.stats   = {}
         self.failed  = False
         self.finished= False
+        self.archived= None
         self.t0[0]   = time.time()
 
     def _mark(self, i):
@@ -134,15 +153,20 @@ class Build(threading.Thread):
 
     def run(self):
         try:
-            subprocess.run(["ssh", REMOTE, f"mkdir -p ~/{RDIR}"], check=True,
+            subprocess.run(["ssh", REMOTE, f"mkdir -p ~/{RDIR}/projects"], check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["rsync", "-az", "--delete",
-                            "--include=rtl/***", "--include=*.qsf", "--include=*.sdc",
-                            "--include=*.qpf", "--exclude=*", "./", f"{REMOTE}:{RDIR}/"],
+            # Source files only. --delete leaves *excluded* files alone, so the
+            # server keeps its Quartus outputs (db/, *.rpt, *.pin) and can
+            # compile incrementally.
+            subprocess.run(["rsync", "-az", "--delete", "--include=*/",
+                            "--include=*.v", "--include=*.sv", "--include=*.vhd",
+                            "--include=*.qsf", "--include=*.qpf", "--include=*.sdc",
+                            "--include=*.tcl", "--exclude=*",
+                            "projects/", f"{REMOTE}:{RDIR}/projects/"],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self._mark(1)
 
-            cmd = (f"cd ~/{RDIR} && export PATH={QBIN}:$PATH && "
+            cmd = (f"cd ~/{RDIR}/projects/{self.proj} && export PATH={QBIN}:$PATH && "
                    f"quartus_sh --flow compile {self.proj}; rc=$?; "
                    f"echo '@@CPF'; "
                    f"quartus_cpf -c -q 12.0MHz -g 3.3 -n p {self.proj}.sof {self.proj}.svf >/dev/null 2>&1; "
@@ -166,11 +190,19 @@ class Build(threading.Thread):
             if not self.failed:
                 os.makedirs("output_files", exist_ok=True)
                 for ext in ("sof", "rbf", "svf"):
-                    subprocess.run(["rsync", "-az", f"{REMOTE}:{RDIR}/{self.proj}.{ext}",
+                    subprocess.run(["rsync", "-az", f"{REMOTE}:{RDIR}/projects/{self.proj}/{self.proj}.{ext}",
                                     "output_files/"], stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL)
                 self._reports()
                 self.done[6] = time.time() - self.t0[6]
+            # Archive every outcome. A failed build must never leave the
+            # previous build's artifacts looking current.
+            try:
+                self.archived = artifacts.archive(
+                    self.proj, "ok" if not self.failed else "failed",
+                    stats=self.stats, duration=time.time() - self.t0[0])
+            except Exception as e:
+                self.errors.append(f"archive failed: {e}"[:150])
 
         except Exception as e:
             self.failed = True
@@ -181,7 +213,7 @@ class Build(threading.Thread):
         """Resource + timing numbers live in the .summary files, not stdout."""
         try:
             r = subprocess.run(["ssh", REMOTE,
-                    f"cd ~/{RDIR} && cat {self.proj}.fit.summary {self.proj}.sta.summary 2>/dev/null"],
+                    f"cd ~/{RDIR}/projects/{self.proj} && cat {self.proj}.fit.summary {self.proj}.sta.summary 2>/dev/null"],
                     capture_output=True, text=True, timeout=20)
             txt = r.stdout
             m = re.search(r"Total logic elements\s*:\s*([\d,]+)\s*/\s*([\d,]+)", txt)
@@ -291,8 +323,72 @@ def render(tel, bld, proj, start, width):
         a(f"  {fg(PINK)}⟩⟩{RESET} {fg(PAPER)}{int(el//60):02d}:{int(el%60):02d}{RESET} {fg(DEEP)}elapsed{RESET}")
     return L
 
+def pick_project():
+    """Selection page shown when ./build.sh is run without a project name."""
+    projs = artifacts.list_projects()
+    if not projs:
+        print("no projects found under projects/"); return None
+
+    info = []
+    for pr in projs:
+        try:
+            n = len(artifacts.source_files(pr))
+        except Exception:
+            n = 0
+        hist = artifacts.list_builds(pr)
+        info.append((pr, n, hist[0] if hist else None))
+
+    sel, prev = 0, 0
+    with Raw():
+        while True:
+            W  = max(52, min(shutil.get_terminal_size((80, 24)).columns - 2, 84))
+            IW = W - 4
+            L  = []
+            L.append(fg(CYAN) + "╭" + "─" * (W - 2) + "╮" + RESET)
+            head = (f"{fg(PINK)}◆{RESET} {fg(ICE)}{BOLD}LYCOCHIP{RESET} "
+                    f"{fg(DEEP)}░▒▓{RESET} {fg(PAPER)}BUILD{RESET}")
+            L.append(fg(CYAN) + "│ " + RESET + head + " " * max(1, W - 22 - 13)
+                     + fg(MUTED) + "EP4CE6E22C8" + fg(CYAN) + " │" + RESET)
+            L.append(fg(CYAN) + "╰" + "─" * (W - 2) + "╯" + RESET)
+            L.append("")
+            L.append(rule("PROJECTS", IW))
+            for i, (pr, n, last) in enumerate(info):
+                cur   = i == sel
+                mark  = f"{fg(PINK)}▸{RESET}" if cur else " "
+                namec = fg(ICE) + BOLD if cur else fg(PAPER)
+                if last:
+                    when  = "built " + artifacts.ago(last.get("built_epoch", 0))
+                    badge = (fg(GREEN) + "✓") if last.get("status") == "ok" else (fg(ROSE) + "✗")
+                else:
+                    when, badge = "never built", fg(DEEP) + "·"
+                L.append(f"  {mark} {namec}{pr:<12}{RESET}"
+                         f"{fg(MUTED)}{n} files{RESET}   "
+                         f"{fg(MUTED) if not cur else fg(PAPER)}{when:<22}{RESET}{badge}{RESET}")
+            L.append("")
+            L.append("  " + "   ".join(f"{fg(PINK)}{k}{RESET} {fg(MUTED)}{v}{RESET}"
+                                       for k, v in (("↑↓", "select"), ("⏎", "build"), ("q", "quit"))))
+            prev = paint(L, prev)
+            try:
+                k = getkey()
+            except KeyboardInterrupt:
+                k = "quit"
+            if k == "quit":
+                return None
+            if   k == "up":   sel = (sel - 1) % len(info)
+            elif k == "down": sel = (sel + 1) % len(info)
+            elif k == "go":   return info[sel][0]
+
+
 def main():
-    proj  = sys.argv[1] if len(sys.argv) > 1 else "blink"
+    proj = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+    if proj is None:
+        if not sys.stdin.isatty():
+            proj = "blink"
+        else:
+            proj = pick_project()
+            print()
+            if proj is None:
+                return
     tel   = Telemetry(); tel.start()
     bld   = Build(proj); bld.start()
     start = time.time()
@@ -317,6 +413,7 @@ def main():
                 break
             time.sleep(0.12)
     finally:
+        tel.stop()
         sys.stdout.write("\033[?25h" + RESET); sys.stdout.flush()
     sys.exit(1 if bld.failed else 0)
 

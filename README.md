@@ -50,11 +50,47 @@ ssh lyco
 rsync -az lyco:lycochip-build/blink.{sof,rbf,svf} output_files/
 ```
 
+## The build archive
+
+Every compile is snapshotted into `builds/<stamp>-<project>-<srchash>/` with a
+`manifest.json` recording the exact sources, git commit, resource usage and
+timing that produced it. The last 25 are kept.
+
+This exists to kill one specific failure: a build fails, the *previous*
+bitstream is still sitting in `output_files/`, and you flash it without
+noticing — then debug new code while the board runs old logic.
+
+Every program action therefore resolves a build from `builds/`, verifies the
+artifact checksums, and **refuses to run if your sources have changed since**:
+
+```
+REFUSING TO PROGRAM: sources on disk differ from this build
+  The board would run logic that does not match your source tree.
+  Rebuild:            ./build.sh blink
+  Or override:  FORCE=1 ./program.sh sram
+```
+
 ## program.sh — write the chip
 
+With no arguments in a terminal you get an interactive picker:
+
+```
+  ▚ BUILDS ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+  ▸ blink     2 minutes ago    ✓   50 LE  +13.74ns  3b9700f+
+    keytest   25 minutes ago   ✓    8 LE       --   3b9700f
+    blink     1 hour ago       ✗  failed
+
+  ↑↓ build   ←→ target   ⏎ program   q quit
+```
+
+`↑↓` picks a build, `←→` switches between SRAM and FLASH, `⏎` programs it.
+A `+` after the commit means the tree was dirty at build time.
+
+Arguments skip the UI and use the newest good build:
+
 ```sh
-./program.sh                 # SRAM: fast, volatile   (default)
-./program.sh flash           # EPCS flash: slow, permanent
+./program.sh sram            # volatile, ~2s
+./program.sh flash           # permanent, ~3min
 ./program.sh detect          # just check the JTAG chain
 ./program.sh sram keytest    # a project other than blink
 ```

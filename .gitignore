@@ -1,0 +1,38 @@
+# ---- build outputs -------------------------------------------------------
+# Reproducible from source; never commit. builds/ is a local archive of past
+# bitstreams used by the programmer UI.
+output_files/
+builds/
+
+# ---- Quartus working files ----------------------------------------------
+db/
+incremental_db/
+*.qws
+*.rpt
+*.summary
+*.smsg
+*.pin
+*.jdi
+*.sld
+*.done
+*.sof
+*.rbf
+*.svf
+*.pof
+*.jic
+
+# ---- python ------------------------------------------------------------
+__pycache__/
+*.pyc
+
+# ---- scratch -------------------------------------------------------------
+backup/readback.bin
+*.bak
+
+# NOTE: resources/ (~290 MB of vendor docs) is deliberately NOT ignored -- it
+# was already committed in "setup", so ignoring it now would reclaim nothing
+# while producing a 6,522-file deletion commit. See README if you ever want to
+# purge it from history properly.
+
+# ---- macOS ---------------------------------------------------------------
+.DS_Store

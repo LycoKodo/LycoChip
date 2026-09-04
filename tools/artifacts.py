@@ -15,6 +15,7 @@ import hashlib, json, os, shutil, subprocess, sys, time
 
 OUT    = "output_files"
 BUILDS = "builds"
+PROJ_D = "projects"
 EXTS   = ("sof", "rbf", "svf")
 KEEP   = 25          # archived builds retained before pruning
 
@@ -27,16 +28,34 @@ def _sha(path):
     return h.hexdigest()
 
 
+def project_dir(proj):
+    return os.path.join(PROJ_D, proj)
+
+
+def list_projects():
+    if not os.path.isdir(PROJ_D):
+        return []
+    return sorted(d for d in os.listdir(PROJ_D)
+                  if os.path.exists(os.path.join(PROJ_D, d, f"{d}.qsf")))
+
+
 def source_files(proj):
+    """Every input that can change the bitstream, in stable order.
+
+    Raises if the project is missing or empty. Returning an empty list would
+    silently produce a hash over nothing, which would disable the staleness
+    guard rather than trip it.
+    """
+    d = project_dir(proj)
+    if not os.path.isdir(d):
+        raise ValueError(f"no such project: {d} (have: {', '.join(list_projects()) or 'none'})")
     files = []
-    for root, _, names in os.walk("rtl"):
+    for root, _, names in os.walk(d):
         for n in sorted(names):
-            if n.endswith((".v", ".sv", ".vhd")):
+            if n.endswith((".v", ".sv", ".vhd", ".qsf", ".qpf", ".sdc", ".tcl")):
                 files.append(os.path.join(root, n))
-    for ext in ("qsf", "qpf", "sdc"):
-        p = f"{proj}.{ext}"
-        if os.path.exists(p):
-            files.append(p)
+    if not files:
+        raise ValueError(f"project '{proj}' contains no source files")
     return sorted(files)
 
 
@@ -154,6 +173,17 @@ def main():
         proj, status = sys.argv[2], sys.argv[3]
         dur = float(sys.argv[4]) if len(sys.argv) > 4 else None
         print(archive(proj, status, duration=dur)["status"])
+    elif cmd == "resolve":
+        proj = sys.argv[2] if len(sys.argv) > 2 else None
+        good = [m for m in list_builds(proj) if m.get("status") == "ok"]
+        if not good:
+            print("ERR\tno successful build archived"); sys.exit(1)
+        m = good[0]
+        probs, warns = verify(m)
+        if probs:
+            print("ERR\t" + "; ".join(probs)); sys.exit(1)
+        print("\t".join([m["_dir"], m["project"], ago(m.get("built_epoch", 0)),
+                          "; ".join(warns)]))
     elif cmd == "list":
         for m in list_builds():
             print(f"{m['project']:10s} {m['status']:8s} {ago(m.get('built_epoch',0)):20s} {m['_dir']}")
