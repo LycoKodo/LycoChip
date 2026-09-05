@@ -16,38 +16,73 @@ macOS build and your JTAG cable is plugged into the Mac.
 server for you; you never need to log in manually. Only the bitstream (~100 KB)
 travels back.
 
+## Layout
+
+Each design is self-contained under `projects/<name>/`:
+
+```
+projects/
+├── blink/
+│   ├── blink.qpf        project file
+│   ├── blink.qsf        device + pin assignments
+│   ├── blink.sdc        timing constraints
+│   └── rtl/blink.v
+└── keytest/
+    ├── keytest.qpf
+    ├── keytest.qsf
+    └── rtl/keytest.v
+```
+
+Quartus compiles with the project directory as its CWD, so every path inside
+a `.qsf` stays relative to that project. Nothing floats at the repo root.
+
 ## Daily loop
 
 ```sh
-vim rtl/blink.v      # 1. edit
-./build.sh blink     # 2. compile on the server (~25 s)
-./program.sh         # 3. load onto the board (~2 s)
+vim projects/blink/rtl/blink.v   # 1. edit
+./build.sh                       # 2. pick a project, compile (~25 s)
+./program.sh                     # 3. pick a build, load it (~2 s)
 ```
 
 The board must be **powered on** before step 3.
 
 ## build.sh — compile
 
-```sh
-./build.sh [project]     # default: blink
+With no argument in a terminal you get a selection page:
+
+```
+  ▚ PROJECTS ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+  ▸ blink       4 files   built 1 minute ago    ✓
+    keytest     3 files   built 9 minutes ago   ✓
+
+  ↑↓ select   ⏎ build   q quit
 ```
 
-1. `rsync` your `rtl/`, `*.qsf`, `*.qpf`, `*.sdc` up to `lyco:~/lycochip-build`
-2. `quartus_sh --flow compile <project>` — synthesis, fit, assemble, timing
-3. `quartus_cpf` converts the `.sof` into a `.svf` (the load format that works)
-4. `rsync` the `.sof`, `.rbf` and `.svf` back into local `output_files/`
+Naming a project skips it: `./build.sh keytest`.
+
+Then it:
+
+1. `rsync`es source files only (`.v .sv .vhd .qsf .qpf .sdc .tcl`) into
+   `lyco:~/lycochip-build/projects/`
+2. runs `quartus_sh --flow compile` in that project's directory
+3. converts the `.sof` into a `.svf` with `quartus_cpf` (the load format that works)
+4. pulls `.sof`, `.rbf`, `.svf` into `output_files/` and archives the build
+
+The rsync deliberately filters by extension: `--delete` does not remove
+*excluded* files, so Quartus outputs (`db/`, `*.rpt`, `*.pin`) survive on the
+server. That keeps incremental compilation working and preserves `blink.pin`.
 
 Doing it by hand:
 
 ```sh
-rsync -az rtl blink.qsf blink.qpf blink.sdc lyco:lycochip-build/
+rsync -az projects/ lyco:lycochip-build/projects/
 ssh lyco
-  cd ~/lycochip-build
+  cd ~/lycochip-build/projects/blink
   export PATH=$HOME/intelFPGA_lite/20.1/quartus/bin:$PATH
   quartus_sh --flow compile blink
   quartus_cpf -c -q 12.0MHz -g 3.3 -n p blink.sof blink.svf
   exit
-rsync -az lyco:lycochip-build/blink.{sof,rbf,svf} output_files/
+rsync -az lyco:lycochip-build/projects/blink/blink.{sof,rbf,svf} output_files/
 ```
 
 ## The build archive
@@ -145,8 +180,8 @@ Three files, then build. Copy `blink.*` as a starting point:
 - LEDs on PIN_84-87, keys on PIN_88-91 — **all active LOW** (drive `0` to light)
 - The LED silkscreen numbering is **reversed** vs the vendor pin table:
   PIN_84 is physically LED1, PIN_87 is LED4
-- Reports live on the server: `blink.fit.summary` (resource use),
-  `blink.sta.summary` (timing), `blink.pin` (final pin-out)
+- Reports live on the server under `~/lycochip-build/projects/<name>/`:
+  `*.fit.summary` (resource use), `*.sta.summary` (timing), `*.pin` (final pin-out)
 
 ## Gotchas
 
