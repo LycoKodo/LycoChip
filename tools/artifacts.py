@@ -8,10 +8,11 @@ selects an archived build, so a stale or failed build can never be flashed by
 accident.
 
   python3 tools/artifacts.py hash    <proj>
-  python3 tools/artifacts.py archive <proj> <status> [duration]
+  python3 tools/artifacts.py archive <proj> <status> [duration] [logfile]
   python3 tools/artifacts.py list
+  python3 tools/artifacts.py list-projects
 """
-import hashlib, json, os, shutil, subprocess, sys, time
+import hashlib, json, os, re, shutil, subprocess, sys, time
 
 OUT    = "output_files"
 BUILDS = "builds"
@@ -37,6 +38,29 @@ def list_projects():
         return []
     return sorted(d for d in os.listdir(PROJ_D)
                   if os.path.exists(os.path.join(PROJ_D, d, f"{d}.qsf")))
+
+
+def misnamed_projects():
+    """Directories that hold a .qsf whose basename is not the directory name.
+
+    Quartus keys the revision, the .qpf and every output file off that
+    basename, and the build/archive/program path keys off the directory, so
+    the two must agree. A mismatch would otherwise make the project simply
+    invisible in the picker with no explanation.
+
+    Returns [(dirname, [qsf basenames found]), ...].
+    """
+    if not os.path.isdir(PROJ_D):
+        return []
+    out = []
+    for d in sorted(os.listdir(PROJ_D)):
+        full = os.path.join(PROJ_D, d)
+        if not os.path.isdir(full) or os.path.exists(os.path.join(full, f"{d}.qsf")):
+            continue
+        found = sorted(n[:-4] for n in os.listdir(full) if n.endswith(".qsf"))
+        if found:
+            out.append((d, found))
+    return out
 
 
 def source_files(proj):
@@ -77,8 +101,38 @@ def _git():
             "dirty":  bool(run("git", "status", "--porcelain"))}
 
 
-def archive(proj, status, stats=None, duration=None):
-    """Snapshot the just-built artifacts into builds/. Returns the manifest."""
+ERR_RE = re.compile(r"^\s*Error|Error \(")
+
+
+def errors_from_log(path):
+    """Pull the Error lines, plus the Info lines Quartus trails them with.
+
+    The explanation of a syntax error ("expecting ;") is usually on the line
+    after the Error, so an Error-only grep loses the half that says what to fix.
+    """
+    out, after = [], False
+    try:
+        with open(path, errors="replace") as f:
+            for ln in f:
+                ln = ln.rstrip()
+                if ERR_RE.search(ln):
+                    out.append(ln.strip()); after = True
+                elif after and re.match(r"^\s*(Info|Warning)\s*\(", ln):
+                    out.append("  " + ln.strip())
+                elif ln.strip():
+                    after = False
+    except OSError:
+        pass
+    return out
+
+
+def archive(proj, status, stats=None, duration=None, log=None, errors=None):
+    """Snapshot the just-built artifacts into builds/. Returns the manifest.
+
+    `log` is a path to the complete compile transcript; it is copied in as
+    build.log so the full text of a failure survives the TUI, which only ever
+    has room for the first few lines.
+    """
     os.makedirs(BUILDS, exist_ok=True)
     sh    = source_hash(proj)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -94,12 +148,19 @@ def archive(proj, status, stats=None, duration=None):
                 shutil.copy2(src, dst)
                 arts[e] = {"sha256": _sha(dst), "bytes": os.path.getsize(dst)}
 
+    if log and os.path.exists(log):
+        shutil.copy2(log, os.path.join(d, "build.log"))
+        if errors is None and status != "ok":
+            errors = errors_from_log(log)
+
     m = {"project": proj, "device": "EP4CE6E22C8", "status": status,
          "built_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "built_epoch": time.time(),
          "duration": duration, "source_sha256": sh, "sources": source_files(proj),
-         "git": _git(), "artifacts": arts, "stats": stats or {}}
+         "git": _git(), "artifacts": arts, "stats": stats or {},
+         "errors": list(errors or [])}
     json.dump(m, open(os.path.join(d, "manifest.json"), "w"), indent=2)
     _prune()
+    m["_dir"] = d          # after the dump: a path is not part of the record
     return m
 
 
@@ -171,8 +232,9 @@ def main():
         print(source_hash(sys.argv[2]))
     elif cmd == "archive":
         proj, status = sys.argv[2], sys.argv[3]
-        dur = float(sys.argv[4]) if len(sys.argv) > 4 else None
-        print(archive(proj, status, duration=dur)["status"])
+        dur = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None
+        log = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+        print(archive(proj, status, duration=dur, log=log)["_dir"])
     elif cmd == "resolve":
         proj = sys.argv[2] if len(sys.argv) > 2 else None
         good = [m for m in list_builds(proj) if m.get("status") == "ok"]
@@ -184,6 +246,11 @@ def main():
             print("ERR\t" + "; ".join(probs)); sys.exit(1)
         print("\t".join([m["_dir"], m["project"], ago(m.get("built_epoch", 0)),
                           "; ".join(warns)]))
+    elif cmd == "list-projects":
+        for pr in list_projects():
+            print(pr)
+        for d, found in misnamed_projects():
+            print(f"(skipped {d}: holds {found[0]}.qsf)", file=sys.stderr)
     elif cmd == "list":
         for m in list_builds():
             print(f"{m['project']:10s} {m['status']:8s} {ago(m.get('built_epoch',0)):20s} {m['_dir']}")

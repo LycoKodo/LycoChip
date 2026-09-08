@@ -13,7 +13,7 @@ import os, re, subprocess, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import artifacts
 from theme import (fg, RESET, BOLD, CYAN, ICE, PINK, VIOLET, DEEP, MUTED,
-                   PAPER, AMBER, ROSE, GREEN, bar, rule)
+                   PAPER, AMBER, ROSE, GREEN, bar, rule, clip, pad)
 
 CABLE = "usb-blaster"
 PART  = "ep4ce622"
@@ -109,23 +109,54 @@ def draw(builds, sel, target, prog, note, width):
     a(rule("BUILDS", IW))
     if not builds:
         a(f"   {fg(ROSE)}no builds archived yet -- run ./build.sh first{RESET}")
-    for i, m in enumerate(builds[:9]):
-        cur  = i == sel
-        st   = m.get("status")
-        badge = (fg(GREEN) + "✓") if st == "ok" else (fg(ROSE) + "✗")
+
+    rows = []
+    for m in builds[:9]:
+        st    = m.get("status")
         stats = m.get("stats") or {}
         le    = stats.get("le")
         le_s  = f"{le[0]:>5} LE" if isinstance(le, (list, tuple)) else ("failed" if st != "ok" else "")
         sl    = stats.get("slack")
         sl_s  = f"{sl:+.2f}ns" if isinstance(sl, (int, float)) else ""
-        g     = (m.get("git") or {}).get("commit", "")
-        dirty = "+" if (m.get("git") or {}).get("dirty") else ""
-        when  = artifacts.ago(m.get("built_epoch", 0))
-        mark  = f"{fg(PINK)}▸{RESET}" if cur else " "
+        git   = m.get("git") or {}
+        rows.append((m.get("project", "?"),
+                     artifacts.ago(m.get("built_epoch", 0)),
+                     (fg(GREEN) + "\u2713") if st == "ok" else (fg(ROSE) + "\u2717"),
+                     le_s, sl_s,
+                     git.get("commit", "") + ("+" if git.get("dirty") else "")))
+
+    if rows:
+        # Sized from the data rather than hardcoded, so a long project name
+        # cannot shove the rest of the row past the panel edge. The tail
+        # columns are dropped whole before the name is clipped -- half a
+        # resource number would be worse than none.
+        nw, ww, lw, sw, gw = (max(len(r[i]) for r in rows) for i in (0, 1, 3, 4, 5))
+        budget = IW - 2                      # "  " + mark + " " already spent 2
+
+        def total():
+            return (nw + 1 + ww + 1 + 1        # name, when, badge
+                    + sum(w + 1 for w in (lw, sw, gw) if w))
+
+        for shed in ("gw", "sw", "lw"):        # git hash, then slack, then LE
+            if total() <= budget:
+                break
+            if shed == "gw":   gw = 0
+            elif shed == "sw": sw = 0
+            else:              lw = 0
+        if total() > budget:                   # nothing left to drop: clip the name
+            nw = max(6, nw - (total() - budget))
+
+    for i, (pr, when, badge, le_s, sl_s, g) in enumerate(rows):
+        cur   = i == sel
+        mark  = f"{fg(PINK)}\u25b8{RESET}" if cur else " "
         namec = fg(ICE) + BOLD if cur else fg(PAPER)
-        a(f"  {mark} {namec}{m.get('project','?'):<9}{RESET}"
-          f"{fg(MUTED) if not cur else fg(PAPER)}{when:<17}{RESET}"
-          f"{badge}{RESET} {fg(MUTED)}{le_s:<9}{sl_s:<10}{g}{dirty}{RESET}")
+        extra = ""
+        if lw: extra += pad(le_s, lw) + " "
+        if sw: extra += pad(sl_s, sw) + " "
+        if gw: extra += clip(g, gw)
+        a(f"  {mark} {namec}{pad(pr, nw)}{RESET} "
+          f"{fg(MUTED) if not cur else fg(PAPER)}{pad(when, ww)}{RESET} "
+          f"{badge}{RESET} {fg(MUTED)}{extra}{RESET}")
     a("")
 
     a(rule("TARGET", IW))

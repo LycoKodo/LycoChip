@@ -7,8 +7,9 @@ Drives the Quartus build on lyco-server and renders live server telemetry
 progress. Colours only -- no background fill -- so terminal transparency
 shows through.
 """
-import os, re, sys, time, shutil, threading, subprocess
+import os, re, sys, time, shutil, tempfile, threading, subprocess
 from collections import deque
+import textwrap
 
 import artifacts
 
@@ -18,7 +19,7 @@ QBIN   = "$HOME/intelFPGA_lite/20.1/quartus/bin"
 
 from theme import (fg, RESET, BOLD, DIM, CYAN, ICE, PINK, VIOLET, DEEP,
                    MUTED, PAPER, AMBER, ROSE, GREEN, BLOCKS,
-                   lerp, heat, bar, graph, rule)
+                   lerp, heat, bar, graph, rule, clip, pad)
 from tui import Raw, getkey, paint
 
 # ---- remote telemetry ----------------------------------------------------
@@ -139,6 +140,8 @@ class Build(threading.Thread):
         self.done    = [None] * len(PHASES)
         self.t0      = [None] * len(PHASES)
         self.errors  = []
+        self.logpath = os.path.join(tempfile.gettempdir(),
+                                    f"lycochip-{proj}-{os.getpid()}.log")
         self.stats   = {}
         self.failed  = False
         self.finished= False
@@ -173,17 +176,30 @@ class Build(threading.Thread):
                    f"echo '@@CPF_DONE'; exit $rc")
             p = subprocess.Popen(["ssh", REMOTE, cmd], stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
+            # Every line goes to the log verbatim. The screen shows a summary;
+            # the file is the record, and it is what gets archived.
+            log = open(self.logpath, "w")
+            after_error = False
             for raw in p.stdout:
                 ln = raw.rstrip()
+                log.write(raw)
                 for key, idx in STARTS.items():
                     if key in ln: self._mark(idx)
                 for i, (_, marker) in enumerate(PHASES):
                     if marker and marker in ln and self.done[i] is None and self.t0[i]:
                         self.done[i] = time.time() - self.t0[i]
                 if re.search(r"^\s*Error", ln) or "Error (" in ln:
-                    if len(self.errors) < 6: self.errors.append(ln.strip()[:150])
+                    self.errors.append(ln.strip())          # no cap, no clipping
+                    after_error = True
+                elif after_error and re.match(r"^\s*(Info|Warning)\s*\(", ln):
+                    # Quartus explains an error in the Info lines that trail it
+                    # -- "near text ;" is on the follow-up, not the Error line.
+                    self.errors.append("  " + ln.strip())
+                elif ln.strip():
+                    after_error = False
                 m = re.search(r"Total logic elements\s*:\s*([\d,]+)\s*/\s*([\d,]+)", ln)
                 if m: self.stats["le"] = f"{m.group(1)} / {m.group(2)}"
+            log.close()
             rc = p.wait()
             self.failed = rc != 0 or bool(self.errors)
             self._mark(6)
@@ -200,13 +216,14 @@ class Build(threading.Thread):
             try:
                 self.archived = artifacts.archive(
                     self.proj, "ok" if not self.failed else "failed",
-                    stats=self.stats, duration=time.time() - self.t0[0])
+                    stats=self.stats, duration=time.time() - self.t0[0],
+                    log=self.logpath, errors=self.errors)
             except Exception as e:
-                self.errors.append(f"archive failed: {e}"[:150])
+                self.errors.append(f"archive failed: {e}")
 
         except Exception as e:
             self.failed = True
-            self.errors.append(str(e)[:150])
+            self.errors.append(str(e))
         self.finished = True
 
     def _reports(self):
@@ -296,8 +313,28 @@ def render(tel, bld, proj, start, width):
     if bld.finished:
         if bld.failed:
             a(f"  {fg(ROSE)}{BOLD}✗ BUILD FAILED{RESET}  {fg(DEEP)}{el:.1f}s{RESET}")
-            for e in bld.errors[:4]:
-                a(f"    {fg(ROSE)}{e[:W-8]}{RESET}")
+            # The panel is a fixed height, so it shows a wrapped excerpt and
+            # points at the transcript. main() reprints everything in full
+            # once the live display is done.
+            # A single Quartus error can run past 500 characters, so the
+            # budget is spent on wrapped lines and a long first error is cut
+            # rather than skipped -- the first one is the one that matters,
+            # and the untruncated text follows the panel either way.
+            ROOM, used, done = 6, 0, 0
+            for e in bld.errors:
+                segs = textwrap.wrap(e, W - 8) or [""]
+                for j, seg in enumerate(segs):
+                    if used >= ROOM:
+                        break
+                    a(f"    {fg(ROSE)}{'' if j == 0 else '  '}{seg}{RESET}")
+                    used += 1
+                if used >= ROOM:
+                    break
+                done += 1
+            rest = len(bld.errors) - done
+            if rest > 0:
+                a(f"    {fg(DEEP)}+{rest} more error line{'' if rest == 1 else 's'}"
+                  f" -- full text below{RESET}")
         else:
             a(f"  {fg(GREEN)}{BOLD}✓ BUILD OK{RESET}  {fg(DEEP)}{el:.1f}s{RESET}")
             st = bld.stats
@@ -326,8 +363,13 @@ def render(tel, bld, proj, start, width):
 def pick_project():
     """Selection page shown when ./build.sh is run without a project name."""
     projs = artifacts.list_projects()
+    bad   = artifacts.misnamed_projects()
     if not projs:
-        print("no projects found under projects/"); return None
+        print("no projects found under projects/")
+        for d, found in bad:
+            print(f"  projects/{d}/ holds {found[0]}.qsf -- rename the directory to "
+                  f"'{found[0]}', or rename the .qsf/.qpf/.sdc to '{d}'")
+        return None
 
     info = []
     for pr in projs:
@@ -336,7 +378,13 @@ def pick_project():
         except Exception:
             n = 0
         hist = artifacts.list_builds(pr)
-        info.append((pr, n, hist[0] if hist else None))
+        last = hist[0] if hist else None
+        if last:
+            when  = artifacts.ago(last.get("built_epoch", 0))
+            badge = (fg(GREEN) + "\u2713") if last.get("status") == "ok" else (fg(ROSE) + "\u2717")
+        else:
+            when, badge = "never built", fg(DEEP) + "\u00b7"
+        info.append((pr, f"{n} files", when, badge))
 
     sel, prev = 0, 0
     with Raw():
@@ -351,19 +399,31 @@ def pick_project():
                      + fg(MUTED) + "EP4CE6E22C8" + fg(CYAN) + " │" + RESET)
             L.append(fg(CYAN) + "╰" + "─" * (W - 2) + "╯" + RESET)
             L.append("")
-            L.append(rule("PROJECTS", IW))
-            for i, (pr, n, last) in enumerate(info):
+            # Columns are sized from the data, not hardcoded: a long project
+            # name would otherwise push the rest of the row past the panel
+            # edge. Everything past the name is fixed-cost, so the name is the
+            # column that gives up space (and gets clipped) when it must.
+            nw, fw, ww = (max(len(r[i]) for r in info) for i in (0, 1, 2))
+            budget = IW - 2                   # "  " + mark + " " already spent 2
+            lead   = "built "                 # reads better, but it is the first
+            total  = nw + 1 + fw + 3 + len(lead) + ww + 2
+            if total > budget:                # thing to go when space is tight
+                lead, total = "", total - 6
+            if total > budget:                # then the name gives up columns --
+                nw = max(6, nw - (total - budget))   # clipping a date is worse
+            for i, (pr, files, when, badge) in enumerate(info):
                 cur   = i == sel
                 mark  = f"{fg(PINK)}▸{RESET}" if cur else " "
                 namec = fg(ICE) + BOLD if cur else fg(PAPER)
-                if last:
-                    when  = "built " + artifacts.ago(last.get("built_epoch", 0))
-                    badge = (fg(GREEN) + "✓") if last.get("status") == "ok" else (fg(ROSE) + "✗")
-                else:
-                    when, badge = "never built", fg(DEEP) + "·"
-                L.append(f"  {mark} {namec}{pr:<12}{RESET}"
-                         f"{fg(MUTED)}{n} files{RESET}   "
-                         f"{fg(MUTED) if not cur else fg(PAPER)}{when:<22}{RESET}{badge}{RESET}")
+                stamp = when if when == "never built" else lead + when
+                L.append(f"  {mark} {namec}{pad(pr, nw)}{RESET} "
+                         f"{fg(MUTED)}{pad(files, fw)}{RESET}   "
+                         f"{fg(MUTED) if not cur else fg(PAPER)}"
+                         f"{pad(stamp, len(lead) + ww)}{RESET} {badge}{RESET}")
+            for d, found in bad:
+                why = f"skipped: holds {found[0]}.qsf, not {d}.qsf"
+                L.append(f"  {fg(ROSE)}!{RESET} {fg(PAPER)}{pad(d, nw)}{RESET} "
+                         f"{fg(MUTED)}{clip(why, budget - nw - 1)}{RESET}")
             L.append("")
             L.append("  " + "   ".join(f"{fg(PINK)}{k}{RESET} {fg(MUTED)}{v}{RESET}"
                                        for k, v in (("↑↓", "select"), ("⏎", "build"), ("q", "quit"))))
@@ -415,6 +475,24 @@ def main():
     finally:
         tel.stop()
         sys.stdout.write("\033[?25h" + RESET); sys.stdout.flush()
+
+    if bld.failed:
+        # The panel above is height-limited; this is not. Everything Quartus
+        # said about the failure goes to the terminal in full, unwrapped and
+        # copy-pasteable, with the transcript path last so it stays on screen.
+        w = max(40, shutil.get_terminal_size((80, 24)).columns - 2)
+        print()
+        print(f"{fg(ROSE)}{BOLD}{'ERRORS':─<{w}}{RESET}")
+        for e in bld.errors:
+            print(f"{fg(ROSE)}{e}{RESET}")
+        if not bld.errors:
+            print(f"{fg(MUTED)}quartus reported no Error lines -- see the "
+                  f"transcript for what it did say{RESET}")
+        log = os.path.join(bld.archived["_dir"], "build.log") if bld.archived else bld.logpath
+        if os.path.exists(log):
+            print(f"\n{fg(MUTED)}full transcript:{RESET} {log}")
+            print(f"{fg(MUTED)}                less -R {log}{RESET}")
+
     sys.exit(1 if bld.failed else 0)
 
 if __name__ == "__main__":

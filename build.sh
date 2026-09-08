@@ -16,9 +16,21 @@ QBIN='$HOME/intelFPGA_lite/20.1/quartus/bin'
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
+# Projects are discovered, not listed: any projects/<name>/<name>.qsf shows up.
+# The directory name and the .qsf basename must agree -- Quartus keys the
+# revision and every output file off the .qsf, while the build, archive and
+# programming paths key off the directory.
 if [ -n "$PROJ" ] && [ ! -f "projects/$PROJ/$PROJ.qsf" ]; then
-    echo "no such project: projects/$PROJ" >&2
-    echo "available: $(ls projects 2>/dev/null | tr '\n' ' ')" >&2
+    echo "no such project: projects/$PROJ/$PROJ.qsf" >&2
+    if [ -d "projects/$PROJ" ]; then
+        other=$(ls "projects/$PROJ"/*.qsf 2>/dev/null | head -1)
+        if [ -n "$other" ]; then
+            b=$(basename "$other" .qsf)
+            echo "  the directory holds $b.qsf -- rename projects/$PROJ to '$b'," >&2
+            echo "  or rename its .qsf/.qpf/.sdc (and PROJECT_REVISION) to '$PROJ'" >&2
+        fi
+    fi
+    echo "available: $(python3 tools/artifacts.py list-projects 2>/dev/null | tr '\n' ' ')" >&2
     exit 1
 fi
 
@@ -45,11 +57,26 @@ rsync -az --delete \
   projects/ "$REMOTE:$RDIR/projects/"
 
 echo "==> compiling $PROJ"
-if ! ssh "$REMOTE" "cd ~/$RPROJ && PATH=$QBIN:\$PATH quartus_sh --flow compile $PROJ"; then
-    python3 tools/artifacts.py archive "$PROJ" failed >/dev/null 2>&1 || true
+# Tee rather than pipe: the transcript is kept whole for the archive, and the
+# exit status must come from quartus_sh, not from tee.
+LOG=$(mktemp -t "lycochip-$PROJ")
+set -o pipefail
+if ! ssh "$REMOTE" "cd ~/$RPROJ && PATH=$QBIN:\$PATH quartus_sh --flow compile $PROJ" 2>&1 | tee "$LOG"; then
+    set +o pipefail
+    D=$(python3 tools/artifacts.py archive "$PROJ" failed "" "$LOG" 2>/dev/null) || true
+    echo "" >&2
     echo "==> BUILD FAILED (archived as failed; previous builds remain selectable)" >&2
+    echo "" >&2
+    grep -nE "^\s*Error|Error \(" "$LOG" >&2 || echo "   (quartus reported no Error lines)" >&2
+    echo "" >&2
+    if [ -n "$D" ] && [ -f "$D/build.log" ]; then
+        echo "   full transcript: $D/build.log" >&2
+    else
+        echo "   full transcript: $LOG" >&2
+    fi
     exit 1
 fi
+set +o pipefail
 
 echo "==> generating SVF"
 ssh "$REMOTE" "cd ~/$RPROJ && PATH=$QBIN:\$PATH quartus_cpf -c -q 12.0MHz -g 3.3 -n p $PROJ.sof $PROJ.svf" >/dev/null
@@ -62,6 +89,6 @@ done
 
 # Archive so the build is visible to ./program.sh and can never go stale
 # silently -- the TUI path does this too.
-python3 tools/artifacts.py archive "$PROJ" ok >/dev/null
+python3 tools/artifacts.py archive "$PROJ" ok "" "$LOG" >/dev/null
 ls -lh output_files/ 2>/dev/null
 echo "==> done. Program with: ./program.sh"

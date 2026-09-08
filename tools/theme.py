@@ -57,3 +57,23 @@ def graph(hist, width, rows=3):
 
 def rule(label, inner, lead="  "):
     return f"{lead}{fg(VIOLET)}▚{RESET} {fg(ICE)}{label}{RESET} {fg(DEEP)}{'┈' * max(0, inner - len(label) - 3)}{RESET}"
+
+
+def clip(s, width):
+    """Truncate to `width` display columns, marking the cut with an ellipsis.
+
+    Column budgets in the TUIs are computed from the terminal size, so a name
+    longer than its column has to lose characters rather than push the rest of
+    the row past the panel edge. Pass plain text only -- this counts characters,
+    and an escape sequence would be counted as visible width.
+    """
+    if width <= 0:
+        return ""
+    if len(s) <= width:
+        return s
+    return s[:width - 1] + "…" if width > 1 else "…"
+
+
+def pad(s, width):
+    """clip() to `width`, then left-align in exactly that many columns."""
+    return clip(s, width).ljust(width)

@@ -1,0 +1,43 @@
+set_global_assignment -name FAMILY "Cyclone IV E"
+set_global_assignment -name DEVICE EP4CE6E22C8
+set_global_assignment -name TOP_LEVEL_ENTITY clock_counter
+set_global_assignment -name VERILOG_FILE rtl/clock_counter.v
+set_global_assignment -name SDC_FILE clock_counter.sdc
+
+# Unassigned pins stay tri-stated inputs so nothing on the board is driven
+# by accident.
+set_global_assignment -name RESERVE_ALL_UNUSED_PINS "AS INPUT TRI-STATED"
+
+# Emit a raw .rbf next to the .sof, for writing the EPCS config flash.
+set_global_assignment -name GENERATE_RBF_FILE ON
+
+# --- OMDAZZ Cyclone IV board V3.0 pinout ------------------------------------
+# Source: resources/.../Hardware documentation/Development board pin information.pdf
+# Cross-checked against the vendor example .qsf files.
+# NOTE: no trailing "; #" comments here -- the QSF parser rejects them.
+
+# LED1..LED4, active low. NOTE: the board silkscreen numbers the LEDs in the
+# REVERSE order to the vendor pin table -- PIN_84 is physically LED1.
+set_location_assignment PIN_84 -to led[0]
+set_location_assignment PIN_85 -to led[1]
+set_location_assignment PIN_86 -to led[2]
+set_location_assignment PIN_87 -to led[3]
+
+# buttons for keys
+set_location_assignment PIN_88 -to key[0]
+
+## CLOCK!!
+set_location_assignment PIN_23 -to clk
+
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to key[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to key[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to key[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to key[3]
+
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led[3]
+
+# Match the server core count (i5-6300U, 4 threads).
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
