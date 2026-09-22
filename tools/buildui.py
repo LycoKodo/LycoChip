@@ -17,6 +17,215 @@ REMOTE = "lyco"
 RDIR   = "lycochip-build"
 QBIN   = "$HOME/intelFPGA_lite/20.1/quartus/bin"
 
+# Quartus runs in one of three places, fastest first:
+#   local   Rosetta container on this Mac (~22 s) -- also works with no network
+#   remote  lyco-server over ssh (~33 s)
+#   vm      the emulated Lima VM (~115 s), fallback only
+# See build.sh for the full reasoning. BACKEND=local|remote|vm forces one.
+DIMAGE = "lycochip-quartus:centos7"
+QTREE  = os.path.expanduser("~/intelFPGA_lite/20.1")
+DBUILD = os.path.expanduser("~/.lycochip-build/projects")
+VM     = "quartus"
+VMQBIN = "$HOME/intelFPGA_lite/20.1/quartus/bin"
+VMDIR  = "$HOME/lycochip-build"
+HERE   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+SRCSYNC = ["--include=*/", "--include=*.v", "--include=*.sv", "--include=*.vhd",
+           "--include=*.qsf", "--include=*.qpf", "--include=*.sdc",
+           "--include=*.tcl", "--exclude=*"]
+
+
+def _ok(*argv, timeout=10):
+    try:
+        return subprocess.run(argv, timeout=timeout, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+    except Exception:
+        return False
+
+
+# The three places Quartus can run. Order is the order they are offered.
+BACKENDS = [
+    ("local",  "Rosetta",     "this Mac, x86-64 translated",  "~22 s"),
+    ("remote", "lyco-server", "over ssh, native x86-64",      "~33 s"),
+    ("vm",     "QEMU",        "this Mac, fully emulated",     "~115 s"),
+]
+
+# Friendly names, so BACKEND=rosetta and BACKEND=qemu work too.
+ALIAS = {"rosetta": "local", "docker": "local",
+         "qemu": "vm", "lima": "vm",
+         "lyco": "remote", "server": "remote"}
+
+
+IMGTAR = os.path.expanduser("~/.lycochip-build/quartus-image.tar")
+
+
+def _have_image():
+    try:
+        r = subprocess.run(["docker", "images", "-q", DIMAGE],
+                           capture_output=True, text=True, timeout=15)
+        return bool(r.stdout.strip())
+    except Exception:
+        return False
+
+
+def _daemon_up():
+    return _ok("docker", "info", timeout=15)
+
+
+def _have_colima():
+    return shutil.which("colima") is not None
+
+
+def docker_ready():
+    """Is the Rosetta backend usable right now? Never starts anything.
+
+    Kept side-effect free (beyond a fast local image load) because the picker
+    calls it to draw a menu -- waiting 40 s for a VM to boot while rendering a
+    list would be worse than the problem the picker was added to solve.
+
+    The image has gone missing once already, and rebuilding it needs the
+    network to pull centos:7 -- exactly what is absent when this backend
+    matters most. So a saved copy is reloaded instead, offline.
+    """
+    if not os.path.isdir(QTREE) or not _daemon_up():
+        return False
+    if _have_image():
+        return True
+    if os.path.exists(IMGTAR):
+        _ok("docker", "load", "-i", IMGTAR, timeout=300)
+        return _have_image()
+    return False
+
+
+def docker_bring_up():
+    """Start a container runtime if none is running. Called after choosing.
+
+    colima is preferred over Docker Desktop: it is a plain CLI VM, so nothing
+    has to be left running in the menu bar, and it supports Rosetta through
+    Apple's virtualisation framework just as Desktop does.
+    """
+    if _daemon_up():
+        return docker_ready()
+    if _have_colima():
+        print(f"{fg(MUTED)}starting colima (no Docker Desktop needed; ~40 s){RESET}")
+        _ok("colima", "start", timeout=300)
+    elif sys.platform == "darwin":
+        print(f"{fg(MUTED)}starting Docker Desktop{RESET}")
+        _ok("open", "-a", "Docker")
+        for _ in range(60):
+            if _daemon_up():
+                break
+            time.sleep(2)
+    return docker_ready()
+
+
+def vm_exists():
+    try:
+        r = subprocess.run(["limactl", "list", VM, "--format", "{{.Status}}"],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def backend_status(bid):
+    """(usable, note) for the picker. Deliberately does no network probing --
+    waiting on an ssh timeout just to draw a menu is what this page replaces."""
+    if bid == "local":
+        if docker_ready():
+            return (True, "ready")
+        if not _daemon_up():
+            # Usable, just not started yet -- selecting it starts it.
+            if _have_colima():
+                return (True, "colima stopped, will start (~40 s)")
+            return (False, "start Docker Desktop, or: brew install colima")
+        return (False, "image missing -- see tools/quartus-docker")
+    if bid == "vm":
+        st = vm_exists()
+        if not st:
+            return (False, "not created")
+        return (True, "ready" if st == "Running" else f"{st.lower()}, will start (~7 min)")
+    return (True, "needs the network")
+
+
+def auto_backend():
+    """Used when there is no terminal to ask at. Fastest first."""
+    if docker_ready():
+        return "local"
+    if _ok("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", REMOTE, "true", timeout=6):
+        return "remote"
+    return "vm" if vm_exists() else "none"
+
+
+_env = os.environ.get("BACKEND", "").strip().lower()
+BACKEND = ALIAS.get(_env, _env if _env in ("local", "remote", "vm") else "")
+
+
+def set_backend(bid):
+    global BACKEND, _BK
+    BACKEND = bid
+    _BK = None
+
+
+def qsh(script, proj=None, ctl=True):
+    """Argv that runs a bash script on the active Quartus backend."""
+    if BACKEND == "remote":
+        pre = [] if ctl else ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
+        return ["ssh"] + pre + [REMOTE, script]
+    if BACKEND == "vm":
+        return ["limactl", "shell", VM, "--", "bash", "-c", script]
+    argv = ["docker", "run", "--rm", "--platform", "linux/amd64",
+            "-e", "LANG=C", "-e", "LC_ALL=C",
+            "-v", f"{QTREE}:/opt/intelFPGA_lite/20.1:ro"]
+    if proj:
+        argv += ["-v", f"{DBUILD}/{proj}:/work", "-w", "/work"]
+    argv += [DIMAGE, "bash", "-c", script]
+    return argv
+
+
+def qcd(proj):
+    """Prefix that puts a command in the project dir with Quartus on PATH.
+
+    The container already starts in /work with PATH set, so it needs none.
+    """
+    if BACKEND == "local":
+        return ""
+    root = f"~/{RDIR}/projects" if BACKEND == "remote" else f"{VMDIR}/projects"
+    path = QBIN if BACKEND == "remote" else VMQBIN
+    return f"cd {root}/{proj} && export PATH={path}:$PATH && "
+
+
+_BK = None
+
+
+def backend_info():
+    """Host label, CPU and thread count of whatever is actually building.
+
+    Read from the backend, never hardcoded: this UI drives three different
+    machines now, and showing the server's silicon while building elsewhere
+    is the kind of quiet lie Article IV exists to stop.
+    """
+    global _BK
+    if _BK is None:
+        host = {"remote": "lyco-server",
+                "local":  "this Mac · Rosetta",
+                "vm":     "local VM (emulated)"}.get(BACKEND, BACKEND)
+        cpu, nthr = "unknown CPU", ""
+        try:
+            r = subprocess.run(
+                qsh("grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2-; nproc"),
+                capture_output=True, text=True, timeout=30)
+            out = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+            if out:
+                cpu = re.sub(r"\s+", " ", out[0])
+            if len(out) > 1:
+                nthr = out[1]
+        except Exception:
+            pass
+        _BK = (host, cpu, nthr)
+    return _BK
+
+
 from theme import (fg, RESET, BOLD, DIM, CYAN, ICE, PINK, VIOLET, DEEP,
                    MUTED, PAPER, AMBER, ROSE, GREEN, BLOCKS,
                    lerp, heat, bar, graph, rule, clip, pad)
@@ -54,7 +263,7 @@ class Telemetry(threading.Thread):
 
     def run(self):
         p = subprocess.Popen(
-            ["ssh", "-o", "ControlMaster=no", "-o", "ControlPath=none", REMOTE, STAT_CMD],
+            qsh(STAT_CMD, ctl=False),
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
         self.proc = p
         block = []
@@ -156,25 +365,34 @@ class Build(threading.Thread):
 
     def run(self):
         try:
-            subprocess.run(["ssh", REMOTE, f"mkdir -p ~/{RDIR}/projects"], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # Source files only. --delete leaves *excluded* files alone, so the
-            # server keeps its Quartus outputs (db/, *.rpt, *.pin) and can
-            # compile incrementally.
-            subprocess.run(["rsync", "-az", "--delete", "--include=*/",
-                            "--include=*.v", "--include=*.sv", "--include=*.vhd",
-                            "--include=*.qsf", "--include=*.qpf", "--include=*.sdc",
-                            "--include=*.tcl", "--exclude=*",
-                            "projects/", f"{REMOTE}:{RDIR}/projects/"],
-                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if BACKEND == "remote":
+                subprocess.run(["ssh", REMOTE, f"mkdir -p ~/{RDIR}/projects"], check=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["rsync", "-az", "--delete"] + SRCSYNC +
+                               ["projects/", f"{REMOTE}:{RDIR}/projects/"],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif BACKEND == "local":
+                # Build in a scratch copy outside the repo: Quartus rewrites the
+                # .qsf and drops db/ beside it, which would move the source hash
+                # out from under an already-archived build.
+                os.makedirs(f"{DBUILD}/{self.proj}", exist_ok=True)
+                subprocess.run(["rsync", "-a", "--delete"] + SRCSYNC +
+                               [f"projects/{self.proj}/", f"{DBUILD}/{self.proj}/"],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.run(qsh(
+                    f"mkdir -p {VMDIR}/projects/{self.proj} && rsync -a --delete "
+                    + " ".join(SRCSYNC) +
+                    f" '{HERE}/projects/{self.proj}/' {VMDIR}/projects/{self.proj}/"),
+                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self._mark(1)
 
-            cmd = (f"cd ~/{RDIR}/projects/{self.proj} && export PATH={QBIN}:$PATH && "
+            cmd = (qcd(self.proj) +
                    f"quartus_sh --flow compile {self.proj}; rc=$?; "
                    f"echo '@@CPF'; "
                    f"quartus_cpf -c -q 12.0MHz -g 3.3 -n p {self.proj}.sof {self.proj}.svf >/dev/null 2>&1; "
                    f"echo '@@CPF_DONE'; exit $rc")
-            p = subprocess.Popen(["ssh", REMOTE, cmd], stdout=subprocess.PIPE,
+            p = subprocess.Popen(qsh(cmd, proj=self.proj), stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
             # Every line goes to the log verbatim. The screen shows a summary;
             # the file is the record, and it is what gets archived.
@@ -206,9 +424,18 @@ class Build(threading.Thread):
             if not self.failed:
                 os.makedirs("output_files", exist_ok=True)
                 for ext in ("sof", "rbf", "svf"):
-                    subprocess.run(["rsync", "-az", f"{REMOTE}:{RDIR}/projects/{self.proj}/{self.proj}.{ext}",
-                                    "output_files/"], stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL)
+                    if BACKEND == "remote":
+                        subprocess.run(["rsync", "-az", f"{REMOTE}:{RDIR}/projects/{self.proj}/{self.proj}.{ext}",
+                                        "output_files/"], stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+                    elif BACKEND == "local":
+                        subprocess.run(["cp", "-f", f"{DBUILD}/{self.proj}/{self.proj}.{ext}",
+                                        "output_files/"], stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+                    else:
+                        subprocess.run(qsh(f"cp -f {VMDIR}/projects/{self.proj}/{self.proj}.{ext} "
+                                           f"'{HERE}/output_files/'"),
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 self._reports()
                 self.done[6] = time.time() - self.t0[6]
             # Archive every outcome. A failed build must never leave the
@@ -229,9 +456,10 @@ class Build(threading.Thread):
     def _reports(self):
         """Resource + timing numbers live in the .summary files, not stdout."""
         try:
-            r = subprocess.run(["ssh", REMOTE,
-                    f"cd ~/{RDIR}/projects/{self.proj} && cat {self.proj}.fit.summary {self.proj}.sta.summary 2>/dev/null"],
-                    capture_output=True, text=True, timeout=20)
+            r = subprocess.run(qsh(
+                    qcd(self.proj) + f"cat {self.proj}.fit.summary {self.proj}.sta.summary 2>/dev/null",
+                    proj=self.proj),
+                    capture_output=True, text=True, timeout=60)
             txt = r.stdout
             m = re.search(r"Total logic elements\s*:\s*([\d,]+)\s*/\s*([\d,]+)", txt)
             if m: self.stats["le"] = (m.group(1).strip(), m.group(2).strip())
@@ -272,7 +500,8 @@ def render(tel, bld, proj, start, width):
     pad   = W - 4 - (2 + 8 + 4 + len(proj) + 1) - 11
     a(fg(CYAN) + "│ " + RESET + title + " " * max(1, pad) + right + fg(CYAN) + " │" + RESET)
     a(fg(CYAN) + "╰" + "─" * (W - 2) + "╯" + RESET)
-    a(f"  {fg(DEEP)}lyco-server · i5-6300U · {len(cores) or 4} threads{RESET}")
+    _host, _cpu, _nthr = backend_info()
+    a(f"  {fg(DEEP)}{_host} · {_cpu} · {_nthr or len(cores) or 4} threads{RESET}")
     a()
 
     a(f"  {fg(VIOLET)}▚{RESET} {fg(ICE)}CPU{RESET} {fg(DEEP)}{'┈' * (IW - 6)}{RESET}")
@@ -293,10 +522,18 @@ def render(tel, bld, proj, start, width):
     a(f"  {fg(VIOLET)}▚{RESET} {fg(ICE)}SYSTEM{RESET} {fg(DEEP)}{'┈' * (IW - 9)}{RESET}")
     mp = (mu / mt * 100) if mt else 0
     a(f"   {fg(MUTED)}MEM {RESET}{bar(mp, gw - 6)} {fg(heat(mp))}{mu:4.2f}{RESET}{fg(DEEP)}/{mt:.2f} GiB{RESET}")
-    tp = max(0.0, min(100.0, (temp - 30) / 60 * 100))
-    tc = GREEN if temp < 60 else (AMBER if temp < 80 else ROSE)
-    a(f"   {fg(MUTED)}TMP {RESET}{bar(tp, gw - 6, tc)} {fg(tc)}{temp:4.1f}°C{RESET}")
-    a(f"   {fg(MUTED)}CLK {RESET}{fg(PAPER)}{freq:.2f} GHz{RESET}")
+    # A VM has no coretemp sensor and no cpufreq. Printing 0.0 C / 0.00 GHz
+    # reads as a measurement; "n/a" reads as the absence of one.
+    if temp > 0:
+        tp = max(0.0, min(100.0, (temp - 30) / 60 * 100))
+        tc = GREEN if temp < 60 else (AMBER if temp < 80 else ROSE)
+        a(f"   {fg(MUTED)}TMP {RESET}{bar(tp, gw - 6, tc)} {fg(tc)}{temp:4.1f}°C{RESET}")
+    else:
+        a(f"   {fg(MUTED)}TMP {RESET}{fg(DEEP)}n/a - no sensor on this backend{RESET}")
+    if freq > 0:
+        a(f"   {fg(MUTED)}CLK {RESET}{fg(PAPER)}{freq:.2f} GHz{RESET}")
+    else:
+        a(f"   {fg(MUTED)}CLK {RESET}{fg(DEEP)}n/a{RESET}")
     a()
 
     a(f"  {fg(VIOLET)}▚{RESET} {fg(ICE)}PIPELINE{RESET} {fg(DEEP)}{'┈' * (IW - 11)}{RESET}")
@@ -439,6 +676,72 @@ def pick_project():
             elif k == "go":   return info[sel][0]
 
 
+def pick_backend_page():
+    """Selection page for where to compile.
+
+    This exists because guessing was wrong in both directions: it picked the
+    emulated VM when Docker happened to be down, and it spent seconds waiting
+    on an ssh timeout before it could even decide. Choosing is faster than
+    detecting, and it is never surprising.
+    """
+    rows = [(bid, name, why, est) + backend_status(bid)
+            for bid, name, why, est in BACKENDS]
+
+    # Land on one that works *right now*: "ready" beats merely usable. With
+    # Docker down that means QEMU rather than lyco-server, which is the right
+    # default on a network where lyco cannot be reached anyway.
+    sel = next((i for i, r in enumerate(rows) if r[5] == "ready"),
+               next((i for i, r in enumerate(rows) if r[4]), 0))
+    prev = 0
+    with Raw():
+        while True:
+            W  = max(52, min(shutil.get_terminal_size((80, 24)).columns - 2, 84))
+            IW = W - 4
+            L  = []
+            L.append(fg(CYAN) + "\u256d" + "\u2500" * (W - 2) + "\u256e" + RESET)
+            head = (f"{fg(PINK)}\u25c6{RESET} {fg(ICE)}{BOLD}LYCOCHIP{RESET} "
+                    f"{fg(DEEP)}\u2591\u2592\u2593{RESET} {fg(PAPER)}BACKEND{RESET}")
+            L.append(fg(CYAN) + "\u2502 " + RESET + head + " " * max(1, W - 24 - 13)
+                     + fg(MUTED) + "EP4CE6E22C8" + fg(CYAN) + " \u2502" + RESET)
+            L.append(fg(CYAN) + "\u2570" + "\u2500" * (W - 2) + "\u256f" + RESET)
+            L.append("")
+            nw = max(len(r[1]) for r in rows)
+            ww = max(len(r[2]) for r in rows)
+            ew = max(len(r[3]) for r in rows)
+            for i, (bid, name, why, est, ok, note) in enumerate(rows):
+                cur   = i == sel
+                mark  = f"{fg(PINK)}\u25b8{RESET}" if cur else " "
+                if not ok:
+                    namec = fg(DEEP)
+                elif cur:
+                    namec = fg(ICE) + BOLD
+                else:
+                    namec = fg(PAPER)
+                notec = fg(GREEN) if ok and note == "ready" else (
+                        fg(MUTED) if ok else fg(ROSE))
+                L.append(f"  {mark} {namec}{pad(name, nw)}{RESET} "
+                         f"{fg(MUTED)}{pad(why, ww)}{RESET}  "
+                         f"{(fg(PAPER) if cur else fg(MUTED))}{pad(est, ew)}{RESET}  "
+                         f"{notec}{clip(note, max(8, IW - nw - ww - ew - 8))}{RESET}")
+            L.append("")
+            L.append(f"  {fg(MUTED)}{clip('all three produce byte-identical bitstreams -- verified', IW)}{RESET}")
+            L.append("")
+            L.append("  " + "   ".join(f"{fg(PINK)}{k}{RESET} {fg(MUTED)}{v}{RESET}"
+                                       for k, v in (("\u2191\u2193", "select"),
+                                                    ("\u23ce", "use"),
+                                                    ("q", "quit"))))
+            prev = paint(L, prev)
+            try:
+                k = getkey()
+            except KeyboardInterrupt:
+                k = "quit"
+            if k == "quit":
+                return None
+            if   k == "up":   sel = (sel - 1) % len(rows)
+            elif k == "down": sel = (sel + 1) % len(rows)
+            elif k == "go":   return rows[sel][0]
+
+
 def main():
     proj = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
     if proj is None:
@@ -449,6 +752,30 @@ def main():
             print()
             if proj is None:
                 return
+    if not BACKEND:
+        if sys.stdin.isatty():
+            chosen = pick_backend_page()
+            print()
+            if chosen is None:
+                return
+            set_backend(chosen)
+        else:
+            set_backend(auto_backend())
+    if BACKEND == "local" and not docker_ready():
+        # A stopped runtime silently demoted the build to the slow backend
+        # once. Now it is started instead, and said out loud.
+        if not docker_bring_up():
+            print(f"{fg(ROSE)}could not bring up a container runtime -- "
+                  f"pick another backend, or run: colima start{RESET}")
+            sys.exit(1)
+    if BACKEND == "none":
+        print("no build backend available -- start Docker Desktop, or create the "
+              f"VM with: limactl start --name={VM} tools/quartus-vm/lima.yaml")
+        sys.exit(1)
+    if BACKEND == "vm" and vm_exists() not in ("Running",):
+        print(f"{fg(MUTED)}starting the {VM} VM (emulated; this takes a few minutes){RESET}")
+        subprocess.run(["limactl", "start", VM],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     tel   = Telemetry(); tel.start()
     bld   = Build(proj); bld.start()
     start = time.time()

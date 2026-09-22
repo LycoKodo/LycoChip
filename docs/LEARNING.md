@@ -12,6 +12,36 @@ A wrong answer, or the confusion resurfacing in code, sends a card straight back
 
 ## Due now
 
+### `pin-assignment-shape` — when the .qsf and the port list disagree
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-09-22 — `keytest.v` declares `output wire led` (a scalar) while
+  `keytest.qsf` says `set_location_assignment PIN_87 -to led[0]`. Quartus emitted
+  `Warning (12069): Ignored assignment(s) for "led[0]" because "led" is not a bus`,
+  then `Critical Warning (169085): No exact pin location assignment(s) for 1 pins of 3`.
+  The design still lit the right LED — `keytest.pin` shows `led : 87 : ... : N`, so
+  the fitter picked PIN_87 on its own and happened to pick the one he wanted. The
+  I/O standard assignment was dropped with it: `led` came out at **2.5 V**, not the
+  3.3-V LVTTL the board wants. This is the same trap Cowork already flagged on
+  `key[0]` in `QUIZ-INBOX.md`, now resurfaced in different code.
+- **Ask:** Your `.qsf` assigns `PIN_87 -to led[0]`, and the LED lit up correctly.
+  But `keytest.pin` records that pin as `User Assignment: N`. What does `N` mean
+  there, and if your assignment was ignored, why did the right LED still light?
+  Then: what would you expect to change in `keytest.pin` if you added a third key
+  to the port list but forgot to give it a location?
+- **Passing answer contains:**
+  - the `.qsf` refers to pins **by port name**, so `led[0]` matches nothing when the
+    port is a scalar `led` — the assignment is discarded, not applied.
+  - `User Assignment: N` means **the fitter chose that pin**, not him. PIN_87 was
+    luck, and a later recompile is free to choose differently.
+  - the `IO_STANDARD` line was keyed to `led[0]` too, so it went as well — hence
+    2.5 V instead of 3.3-V LVTTL.
+  - a missing pin location is **not an error** (Article V): the only way to know is
+    to read the `User` column in `<name>.pin`, not to press buttons and see if it
+    looks right.
+- **Links:** [[vector-declaration-syntax]], [[implicit-nets]]
+- **History:**
+  - 2026-09-22 — raised from live evidence in `keytest`, not yet quizzed.
+
 ### `wire-vs-reg` — the two storage classes
 - **Box:** 1 · **Due:** session 2
 - **Raised:** 2026-09-05 — asked directly in a comment in `full_adder.v`:

@@ -5,8 +5,15 @@
 //   hold KEY1         -> LED1 lights (and so on)
 // If the LEDs still animate after loading this, our bitstream is not running.
 module keytest(
-    input  wire [3:0] key,  // PIN_88/89/90/91, active low
-    output wire [3:0] led   // PIN_87/86/85/84, active low
+    input [1:0] key_n,  // PIN_88/89/90/91, active low
+    output led_n   // PIN_87/86/85/84, active low
 );
-    assign led = key;
+    wire [1:0] key;
+    wire led;
+
+    assign key = ~key_n;
+    assign led_n = ~led;
+
+    assign led = key[0] && key[1];
+
 endmodule

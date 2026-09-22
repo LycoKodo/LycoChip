@@ -1,0 +1,52 @@
+# An x86-64 Ubuntu 24.04 VM for running Quartus Prime Lite on Apple Silicon.
+#
+# Why a whole VM and not a container: Quartus 20.1 does not survive user-mode
+# emulation. Proven on this Mac, 2026-09-21:
+#   * Rosetta      -> glibc aborts, "mremap_chunk(): invalid pointer"
+#   * qemu-x86_64  -> segfault in PDB_SEGMENT_READER::xfr_stl_ptr at
+#                     0xffffffff85f03f20 (a sign-extended 32-bit pointer)
+#                     while loading the Cyclone IV device database
+# Both are address-space bugs in the translation layer. Full-system emulation
+# gives Quartus a genuine x86-64 kernel and address space, which is the same
+# thing it gets on lyco-server -- only the CPU is emulated.
+#
+# Quartus is installed on the VM's OWN disk, not a host mount, because Quartus
+# mmaps its device database and shared filesystems are where that goes wrong.
+# Only the repo is mounted, so sources and bitstreams land on the Mac.
+
+arch: x86_64
+vmType: qemu
+
+images:
+- location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+  arch: x86_64
+
+# 6 vCPU is not a guess -- it measured fastest. Throwing cores at emulation
+# makes it SLOWER, because multi-threaded TCG pays more in synchronisation
+# than it wins in parallelism. Measured on an M4 Pro (8 P-cores), compiling
+# clock_counter, 2026-09-21:
+#     6 vCPU + NUM_PARALLEL_PROCESSORS 4 -> 111-114 s   <-- best
+#     8 vCPU + NUM_PARALLEL_PROCESSORS 4 -> 118 s
+#     8 vCPU + NUM_PARALLEL_PROCESSORS 8 -> 124 s
+# Do not "optimise" these upward without re-measuring.
+cpus: 6
+memory: "8GiB"
+disk: "40GiB"
+
+mounts:
+- location: "~/Desktop/LycoChip"
+  writable: true
+
+# Same library set the container work established: every shared object the six
+# compile binaries reference outside their own tree.
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y --no-install-recommends \
+      libglib2.0-0t64 libnsl2 libcrypt1 zlib1g libpcre2-8-0 \
+      locales rsync
+    locale-gen en_US.UTF-8
