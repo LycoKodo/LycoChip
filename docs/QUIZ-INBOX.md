@@ -21,7 +21,7 @@ extend with x/z, signed literals sign-extend). Passing answer must distinguish
 `25'b1` = 1 from `{25{1'b1}}` = 33,554,431, and say which one a threshold wants.
 **Missing for a pass:** he has not yet stated *why* zero-extension is the rule, and he then
 used `25'h1FFFFFF` as his actual threshold — see the entry below.
-**Drained:** no
+**Drained:** yes (2026-10-12, Claude Code: folded into LEARNING.md)
 
 ## wire-vs-reg, vector-declaration-syntax — 2026-09-08 — CARDS BURNED, REWORD THE ASKS
 **Source:** the same outside chat.
@@ -36,7 +36,7 @@ same-day explanation, not understanding.
 e.g. for `wire-vs-reg`, hand him a `reg` assigned in `always @(*)` and ask how many
 flip-flops it makes and why; for `vector-declaration-syntax`, ask what
 `reg [7:0] m [0:1023]` costs on an EP4CE6 and which bracket caused it.
-**Drained:** no
+**Drained:** yes (2026-10-12, Claude Code: folded into LEARNING.md)
 
 ## non-blocking-rhs — 2026-09-08 — RAISED, UNRESOLVED IN CODE
 **Source:** outside chat + the synthesis evidence in `builds/20260908-193646-*`.
@@ -48,7 +48,7 @@ three branches. The fitter's verdict is now on record and is stronger than the a
 register and a latch**, because the asynchronous-reset branch assigns a non-constant.
 He has inferred four latches and has not seen it.
 **Verdict:** open — not quizzed by me, evidence gathered.
-**Drained:** no
+**Drained:** yes (2026-10-12, Claude Code: folded into LEARNING.md)
 
 ## Cowork's two questions, asked 2026-09-08, answers not yet given
 1. `Warning (12069): Ignored assignment(s) for "key[0]" because "key" is not a bus` ×5, then
@@ -60,7 +60,7 @@ He has inferred four latches and has not seen it.
 
 Earlier, still unanswered: derive `blink`'s 29 registers; construct a case where `&&` and
 `&` diverge (that second one is your `logical-vs-bitwise` card).
-**Drained:** no
+**Drained:** yes (2026-10-12, Claude Code: folded into LEARNING.md)
 
 ---
 
