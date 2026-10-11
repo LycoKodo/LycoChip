@@ -11,6 +11,18 @@ and follows it without being reminded. Living document — Alex amends it.
 **Read at session start, in this order:** this file → `docs/LEARNING.md` (what is due
 for quizzing) → `docs/PROGRESS.md` (where the work stands).
 
+> **Direction note — added by Claude Code, 2026-10-12, on branch
+> `reckoning-safety-path`.** Alex is taking LycoChip toward hardware-enabled AI
+> governance. His planned shape:
+> 1. finish the MNIST accelerator;
+> 2. add a usage meter on the datapath that the host can't reset;
+> 3. add attestation of the weights' hash plus the count;
+> 4. write it up as a toy "Interlock" (flexHEG; see `docs/research/flexheg.md`).
+>
+> This is context, not a rule change. Article I applies unchanged: the meter, the
+> attestation logic and every choice about them are his. Article I's purpose
+> sentence still names only the accelerator; whether to amend it is his call.
+
 ---
 
 ## Article I — Learning first, no shortcuts
@@ -201,6 +213,15 @@ Quartus has no macOS build, and the JTAG cable is on the Mac. That split is perm
 |---|---|---|
 | Mac | `~/Desktop/LycoChip` | edit RTL, run the scripts, program the board |
 | lyco-server | `~/lycochip-build` | Quartus Prime Lite 20.1.1 at `~/intelFPGA_lite/20.1` |
+| Windows PC *(added 2026-10-12)* | `C:\Users\Alex\Documents\GitHub\LycoChip` | **main bench from Oct 2026**: board plugged in here; native Quartus build + program from Git Bash |
+
+> **Amended 2026-10-12 (Claude Code, a factual update under Article VI).** The
+> split above is no longer permanent. An x86-64 Windows PC is becoming the main
+> workstation. Quartus runs natively there (`build.sh` backend `native`), and it
+> programs over JTAG with `quartus_pgm` and the `.sof`. The Mac stays for editing
+> and simulation. Setup, audit and morning checks: `docs/WINDOWS.md`. As of this
+> note, Quartus is **not yet installed** on the PC and no Windows build has been
+> verified on hardware.
 
 `ssh lyco` prefers the tailnet (`100.95.45.18`) and falls back to the LAN
 (`192.168.1.112`) via a `Match exec` in `~/.ssh/config`. All tooling goes through that
@@ -238,10 +259,19 @@ is intercepted by Tailscale SSH, which presents a different host key.
   `RESERVE_ALL_UNUSED_PINS` does not protect against this.
 - `backup/factory_flash_2MB.bin` is the board's original demo image. It is not
   downloadable anywhere. Do not delete it.
+- *(Windows, added 2026-10-12)* **`python3` is the Microsoft Store stub**: it is
+  found on PATH, and fails when run. Scripts use `$PY` from `tools/hostenv.sh`.
+  **Windows Python writes `\r\n` to pipes**, so strip `\r` from anything parsed.
+  **Line endings:** `core.autocrlf=true` would give the same commit a different
+  `source_sha256`. Sources and scripts are now pinned to LF in `.gitattributes`.
+- *(Windows, added 2026-10-12)* **Never write the config flash from the Windows
+  `quartus_pgm` path**: `upload.sh flash` refuses there, on purpose. The proven
+  flash route is the Mac's.
 
 ### The build loop
 
-`./build.sh` (project picker) → `./program.sh` (build picker). Every build is archived
+`./build.sh` (project picker) → `./upload.sh` (build picker; renamed from `program.sh`
+in `dda9344` — name corrected here 2026-10-12). Every build is archived
 under `builds/` with a manifest of the exact sources that produced it, and programming
 **refuses** if the sources on disk have changed since — override with `FORCE=1` only
 deliberately. That guard exists to stop Alex debugging new code while the board runs old
