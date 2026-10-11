@@ -34,5 +34,15 @@ backup/readback.bin
 # while producing a 6,522-file deletion commit. See README if you ever want to
 # purge it from history properly.
 
+# ---- python environments ------------------------------------------------
+# Per-machine (the Windows GPU venv is ~4 GB of CUDA wheels). Recreate with
+# the commands in docs/WINDOWS.md.
+.venv/
+
+# ---- simulation outputs (sim.sh) ----------------------------------------
+sim_out/
+*.vcd
+*.fst
+
 # ---- macOS ---------------------------------------------------------------
 .DS_Store
