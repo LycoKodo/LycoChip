@@ -250,3 +250,76 @@ Start-up belongs after the backend is resolved, not inside the code that guesses
   yet Homebrew did not symlink it into PATH. `brew link docker` is needed first,
   or removing Desktop takes the `docker` command with it.
 - Still undrained: `docs/QUIZ-INBOX.md`.
+
+---
+
+## 2026-10-12 — Windows bench prepared overnight; direction set toward hardware-enabled governance
+
+**Phase:** 1 — toolchain. No RTL changed. A direction decision of Alex's is recorded
+below.
+
+**Built:** No RTL. Toolchain only (all work on branch `reckoning-safety-path`):
+- **`native` build backend.** `build.sh` and `upload.sh` gained it for a Windows PC:
+  Quartus from `bin64`, programming with `quartus_pgm` and the `.sof`. It is
+  auto-detected only on Windows, so the Mac, Docker, VM and lyco-server paths are
+  unchanged. The host-specific logic lives in `tools/hostenv.sh`.
+- **OSS CAD Suite** (Windows-native build, 2026-10-11) at `~/oss-cad-suite`, and
+  `lint.sh` working on it.
+- **`sim.sh`**, a testbench runner. A testbench must print `PASS` to pass.
+- **GPU venv**: `torch 2.14.1+cu130`.
+- **Docs and scripts**: `docs/WINDOWS.md`, the morning scripts in `tools/windows/`,
+  and `docs/research/flexheg.md`.
+
+**Verified:**
+- **Build/upload plumbing: stubs only.** Tested against *stub* Quartus binaries in a
+  scratch copy of the repo. That covered the source mirror, db/ surviving, the
+  failure archive, the version-mismatch warning, detect, SRAM load, flash refusal and
+  the staleness guard.
+- **Real Quartus: unverified.** It is not installed.
+- **Hardware: unverified.** No USB-Blaster was connected (no USB device with vendor
+  ID `09FB`).
+- **lint.sh: real run.** iverilog 14.0 and Verilator 5.053 on the existing RTL.
+- **GPU: real run.** A fp32 2048² matmul on the RTX 5060 (sm_120) matched a float64
+  CPU reference at 8.6e-7 relative error.
+- **OSS CAD Suite download:** its SHA-256 matched the digest GitHub publishes.
+
+**Resources:** No synthesis run, so no new numbers. For scale only, *not* our
+measurement: the open-source secworks SHA-256 core reports, in its own README,
+3,882 LEs / 1,813 registers on an EP4CE6 (Quartus II 13.1). If that holds, one
+off-the-shelf SHA-256 is ~62% of this part.
+
+**Learned:** Nothing of Alex's tonight — toolchain and reading, done while he slept.
+- **His decision (2026-10-11):** take LycoChip toward hardware-enabled AI governance,
+  prompted by *The Social Reckoning* and the flexHEG papers. The shape:
+  1. finish the MNIST accelerator;
+  2. a usage meter on the datapath the host can't reset;
+  3. attestation of a hash of the weights plus the count;
+  4. a write-up as a toy Interlock.
+
+  The design is his. `docs/research/flexheg.md` §7 lists the questions it raises,
+  unanswered.
+- **Three Windows failures that are silent rather than loud**, the Article IV pattern
+  again:
+  - `python3` is found on PATH but is the Microsoft Store stub, so
+    `command -v python3` lies.
+  - `core.autocrlf=true` changes source bytes, and so `source_sha256`. Restoring
+    `clock_counter.v` from git moved its hash from `1e469aff` to `4a5aa245` in the
+    test copy with no content change.
+  - Git for Windows has no rsync.
+- **Lint findings on existing code, reported and not fixed:**
+  - `blink.v:32`: `WIDTHEXPAND` (25-bit `cnt` compared at 32 bits).
+  - `full_adder.v`: iverilog *fails* on use-before-declaration of `S` and `c_out`,
+    and Verilator reports 8 × `IMPLICIT`. That is the `implicit-nets` card, live.
+  - `clock_counter.v`: lint-clean. Yet the fitter's latch warning (13310) recorded in
+    `QUIZ-INBOX.md` comes from code that is still there. **Lint-clean is not
+    synthesis-clean**, and that is worth a question.
+
+**Stuck on:**
+- **Quartus is not installed** (Alex's to do). The repo is on 20.1.1, so installing
+  that keeps bitstreams comparable with the Mac. Then: the USB-Blaster driver
+  (admin), the Windows 11 Memory-integrity trap, `tools/windows/check-quartus.sh`,
+  and the `full_adder` load test. All in `docs/WINDOWS.md`.
+- **The branch is not pushed.** Git Credential Manager wanted an interactive GitHub
+  sign-in, so every commit from tonight is local only. Push from GitHub Desktop, or `git push origin reckoning-safety-path` once signed in.
+- **No testbenches exist yet.** `sim.sh` is ready for the first one.
+- **`docs/QUIZ-INBOX.md` is still undrained,** now with 5 more questions (flexHEG).
