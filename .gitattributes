@@ -17,3 +17,17 @@
 *.xlsx binary
 *.jpg binary
 *.png binary
+
+# Scripts and HDL sources are LF on every machine. Bash wants LF, and
+# tools/artifacts.py hashes source *bytes* -- a CRLF checkout on Windows would
+# give the same commit a different source_sha256 than the Mac, and the
+# cross-machine "same sources" comparisons in PROGRESS.md would quietly break.
+*.sh  text eol=lf
+*.py  text eol=lf
+*.v   text eol=lf
+*.sv  text eol=lf
+*.vhd text eol=lf
+*.qsf text eol=lf
+*.qpf text eol=lf
+*.sdc text eol=lf
+*.tcl text eol=lf
