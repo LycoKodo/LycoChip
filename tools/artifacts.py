@@ -84,9 +84,13 @@ def source_files(proj):
 
 
 def source_hash(proj):
+    # Paths go into the hash with '/' whatever the OS, sorted after that
+    # normalisation: Windows Python spells them with '\', which made identical
+    # sources hash differently there than on the Mac. On a POSIX host the
+    # replace is a no-op, so existing manifests stay valid.
     h = hashlib.sha256()
-    for p in source_files(proj):
-        h.update(p.encode())
+    for p in sorted(source_files(proj), key=lambda q: q.replace(os.sep, "/")):
+        h.update(p.replace(os.sep, "/").encode())
         h.update(_sha(p).encode())
     return h.hexdigest()
 

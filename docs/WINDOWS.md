@@ -183,7 +183,17 @@ get a different `source_sha256` here than on the Mac. Bash would also see the
 `\r`.
 
 `.gitattributes` now pins `*.sh *.py *.v *.sv *.vhd *.qsf *.qpf *.sdc *.tcl`
-to `eol=lf`. Two more traps:
+to `eol=lf`.
+
+The bytes were only half of it. `source_hash` also hashes each file's *path*,
+and Windows Python spells paths with `\`. So even LF-identical sources hashed
+differently: `clock_counter` came out `59f3d1a4…` here and `ff62f512…` under
+POSIX Python (WSL), reading the same files. The hash now normalises paths to `/`.
+On a POSIX host that is a no-op, so Mac manifests are unchanged.
+
+Verified 2026-10-12, Windows Python against WSL `python3` on the same checkout:
+all five projects match (`blink b78a43f6…`, `button_counter 6f86f059…`,
+`clock_counter ff62f512…`, `full_adder 94f5f345…`, `keytest 995b65b2…`). Two more traps:
 
 - **Windows Python writes `\r\n` to pipes.** The scripts strip `\r` from
   anything they parse out of `python`.
