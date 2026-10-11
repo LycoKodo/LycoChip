@@ -58,7 +58,7 @@ written or edited, and no design decisions were made.
   device-support check. Everything Quartus-shaped is unverified.
 - **No JTAG test.** The board and USB-Blaster weren't connected.
 - **Not pushed.** `git push` opened a Git Credential Manager "Connect to GitHub"
-  window, which needs you. I stopped it rather than retry, so **9 commits are
+  window, which needs you. I stopped it rather than retry, so **all 12 of tonight's commits are
   local only**. Sorry if you saw that window flash up.
 - **A correction to my own entry.** The `PROGRESS.md` entry says LF pinning
   makes Windows hashes match the Mac. It was only half the cause: path
