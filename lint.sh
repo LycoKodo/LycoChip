@@ -23,9 +23,22 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
+# On Windows: puts ~/oss-cad-suite on PATH and sets VERILATOR_ROOT.
+. "$HERE/tools/hostenv.sh"
 
-command -v iverilog  >/dev/null || { echo "iverilog not installed:  brew install icarus-verilog" >&2; exit 1; }
-command -v verilator >/dev/null || { echo "verilator not installed: brew install verilator" >&2; exit 1; }
+if [ -n "$LYCO_WINDOWS" ]; then
+    HINT="unpack OSS CAD Suite to ~/oss-cad-suite (see docs/WINDOWS.md)"
+else
+    HINT="brew install icarus-verilog verilator"
+fi
+command -v iverilog >/dev/null || { echo "iverilog not installed: $HINT" >&2; exit 1; }
+
+# `verilator` is a Perl wrapper around verilator_bin. Git Bash's perl lacks
+# Pod::Usage, so on Windows the wrapper dies before doing anything; the binary
+# itself works. Use whichever actually runs.
+if verilator --version >/dev/null 2>&1; then VERILATOR=verilator
+elif verilator_bin --version >/dev/null 2>&1; then VERILATOR=verilator_bin
+else echo "verilator not installed: $HINT" >&2; exit 1; fi
 
 PROJ=${1:-}
 if [ -n "$PROJ" ]; then
@@ -47,7 +60,7 @@ for f in $files; do
     fi
     # Verilator exits non-zero on any warning under -Wall; that is too strict
     # to gate on, so its findings are reported and the exit status ignored.
-    out=$(verilator --lint-only -Wall "$f" 2>&1 | grep -E "^%(Error|Warning)" || true)
+    out=$($VERILATOR --lint-only -Wall "$f" 2>&1 | grep -E "^%(Error|Warning)" || true)
     if [ -z "$out" ]; then
         echo "   verilator  clean"
     else
