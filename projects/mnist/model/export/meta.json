@@ -1,0 +1,25 @@
+{
+ "weight_bits": 4,
+ "act_bits": 8,
+ "bias_bits": 32,
+ "qmax_weight": 7,
+ "qmax_act": 127,
+ "shift": 32,
+ "M": 9065027,
+ "layout": "row-major, index = neuron * n_inputs + input; two's complement",
+ "w1_shape": [
+  16,
+  784
+ ],
+ "w2_shape": [
+  10,
+  16
+ ],
+ "pixel_scale": "1/255",
+ "weight_scales": [
+  0.0944945045879909,
+  0.14020733322416032
+ ],
+ "hidden_unit_scale": 0.17557274448258725,
+ "rescale": "h = min((relu(acc1) * M + 2**(shift-1)) >> shift, qmax_act)"
+}

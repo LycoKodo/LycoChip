@@ -33,12 +33,16 @@ if [ -n "$PROJ" ]; then
     [ -n "$files" ] || { echo "no RTL under projects/$PROJ/rtl/" >&2; exit 1; }
 else
     files=$(ls projects/*/rtl/*.v 2>/dev/null)
+    [ -n "$files" ] || { echo "no RTL under projects/*/rtl/ yet -- nothing to lint"; exit 0; }
 fi
 
 rc=0
 for f in $files; do
     echo "── $f"
-    if err=$(iverilog -t null "$f" 2>&1); then
+    # -y: a file that instantiates another module finds it in the same rtl/
+    # directory, by file name (module mac lives in mac.v).
+    lib=$(dirname "$f")
+    if err=$(iverilog -t null -y "$lib" -I "$lib" "$f" 2>&1); then
         echo "   iverilog   ok"
     else
         echo "   iverilog   FAILED"
@@ -47,7 +51,7 @@ for f in $files; do
     fi
     # Verilator exits non-zero on any warning under -Wall; that is too strict
     # to gate on, so its findings are reported and the exit status ignored.
-    out=$(verilator --lint-only -Wall "$f" 2>&1 | grep -E "^%(Error|Warning)" || true)
+    out=$(verilator --lint-only -Wall -y "$lib" -I"$lib" "$f" 2>&1 | grep -E "^%(Error|Warning)" || true)
     if [ -z "$out" ]; then
         echo "   verilator  clean"
     else

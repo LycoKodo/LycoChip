@@ -74,9 +74,13 @@ def source_files(proj):
     if not os.path.isdir(d):
         raise ValueError(f"no such project: {d} (have: {', '.join(list_projects()) or 'none'})")
     files = []
-    for root, _, names in os.walk(d):
+    for root, dirs, names in os.walk(d):
+        # tb/ is simulation-only and is never sent to Quartus (see SRCSYNC in
+        # build.sh); editing a testbench must not make a build look stale.
+        dirs[:] = [x for x in dirs if x != "tb"]
         for n in sorted(names):
-            if n.endswith((".v", ".sv", ".vhd", ".qsf", ".qpf", ".sdc", ".tcl")):
+            # .hex/.mif: memory contents are part of the bitstream.
+            if n.endswith((".v", ".vh", ".sv", ".vhd", ".qsf", ".qpf", ".sdc", ".tcl", ".hex", ".mif")):
                 files.append(os.path.join(root, n))
     if not files:
         raise ValueError(f"project '{proj}' contains no source files")

@@ -1,0 +1,15 @@
+# Python env for the MNIST golden model (Phase 3).
+#   conda env update -n LC-MNIST -f environment.yml --prune
+name: LC-MNIST
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      # PyPI wheels for macOS arm64 include the MPS (Apple GPU) backend.
+      - torch
+      - torchvision   # torchvision.datasets.MNIST
+      - numpy
+      - matplotlib
+      - ipykernel

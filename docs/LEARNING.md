@@ -6,7 +6,11 @@ when linked to this Mac (see `docs/HANDSHAKE.md`, amendment 2026-09-23). Read it
 before writing; never rewrite another session's history lines. Alex does not need to
 touch it.
 
-**Session count: 1**  ← increment at the start of each working session
+**Session count: 3**  ← increment at the start of each working session
+
+**Paths:** since 2026-10-20 the exercise projects these cards cite (`full_adder`,
+`keytest`, `clock_counter`, `blink`, `button_counter`) live in `archive/exercises/`,
+not `projects/`. The files themselves are unchanged.
 
 Boxes: 1 = new/wrong (next session) · 2 = +2 · 3 = +4 · 4 = +8 · 5 = retired.
 A wrong answer, or the confusion resurfacing in code, sends a card straight back to box 1.
@@ -71,6 +75,8 @@ A wrong answer, or the confusion resurfacing in code, sends a card straight back
   - 2026-09-08 — raised by Cowork from `clock_counter`'s build log; asked, unanswered.
   - 2026-09-22 — carded by Claude Code from `keytest` (shape mismatch). Same day, the
     symptom survived the fix for a new cause (no trailing newline). Stays box 1.
+  - 2026-10-20 — asked by Claude Code (first question, the `led_n` one), at the start
+    of `projects/mnist/`, whose `.qsf` he is about to write. Awaiting answer.
 
 ### `latch-inference` — why `led` got a latch and `data` didn't
 - **Box:** 1 · **Due:** next session
@@ -212,6 +218,118 @@ A wrong answer, or the confusion resurfacing in code, sends a card straight back
 - **Links:** [[wire-vs-reg]]
 - **History:**
   - 2026-09-05 — raised, not yet quizzed.
+
+### `layer-as-matmul` — what `Linear` and `ReLU` compute, and what the chip must do
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-20 — asked how `nn.Sequential(nn.Flatten(), nn.Linear(784, 64),
+  nn.ReLU(), nn.Linear(64, 10))` in `projects/mnist/model/train.ipynb` works. Explained
+  in chat on request; not graded.
+- **Ask:** How many multiply-accumulates does one image cost through 784 → 64 → 10?
+  If the chip had a single multiplier running at 50 MHz, how long would one image take?
+  And what would happen to the network if you deleted the `ReLU`?
+- **Passing answer contains:**
+  - `Linear(n, m)` computes `y = W·x + b`: each of the m outputs is a dot product of the
+    n inputs with one row of W, i.e. n multiply-accumulates. So 784 × 64 + 64 × 10 =
+    50,816 MACs per image (biases are additions, not MACs).
+  - one MAC per clock → 50,816 cycles ≈ 1.0 ms at 50 MHz. More multipliers divide that
+    down; this is the "how much runs in parallel" decision.
+  - without `ReLU`, two linear layers compose into one linear layer (`W₂(W₁x) = (W₂W₁)x`),
+    so the hidden layer adds nothing. The nonlinearity is what makes it a network.
+  - `Flatten` moves no arithmetic: it just reads the 28 × 28 image as 784 numbers in
+    row order, so it is an addressing decision in hardware.
+- **History:**
+  - 2026-10-20 — raised and explained in chat; not yet asked back.
+
+### `layers-weights-biases` — what counts as a layer, and why `Linear` has two parameters
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-20 — asked whether `784 → 64 → 10` is a 2- or 3-layer network, why
+  each `Linear` has two parameters, and whether one `Linear` is one layer. Explained in
+  chat on request; not graded.
+- **Ask:** You change the network to `784 → 32 → 32 → 10`. How many `Linear` layers, how
+  many hidden layers, and how many parameters in total? Which of those numbers does the
+  bias account for, and does it need a multiplier on the chip?
+- **Passing answer contains:**
+  - one `Linear` = one weight matrix `W` plus one bias vector `b` = one layer. `Flatten`
+    and `ReLU` have no parameters and are not layers.
+  - 3 `Linear` layers, 2 hidden layers. Parameters: 784×32 + 32 + 32×32 + 32 + 32×10 + 10
+    = 25,088 + 32 + 1,024 + 32 + 320 + 10 = 26,506, of which 74 are biases.
+  - the bias has one entry per output neuron (shape `[m]`, not `[m, n]`); it shifts when
+    that neuron switches on.
+  - in hardware the bias is the accumulator's starting value: an add, not a multiply, so
+    it costs memory but no multiplier.
+  - "2-layer" vs "3-layer" is a counting convention (layers that compute vs rows of
+    neurons); a good answer states which one it is using.
+- **Links:** [[layer-as-matmul]]
+- **History:**
+  - 2026-10-20 — raised and explained in chat; not yet asked back.
+  - 2026-10-20 — resurfaced: asked the difference between `b1`/`b2` and `w1`/`w2` in the
+    export. Explained (layer number vs parameter kind; per-connection vs per-neuron; bias
+    at the accumulator's scale). Not yet asked back. Stays box 1.
+
+### `symmetric-quantisation` — turning float weights into n-bit integers plus one scale
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-20 — asked how to go to 8-bit weights. He was given three smaller
+  questions to work out `quantise()` himself, then asked Claude to write it; Claude wrote
+  it (override per Article VI), so he has **not** yet derived it. Ask application, not
+  recitation.
+- **Ask:** In `train.ipynb`, `int_inference` (which replaced `quantise` on 2026-10-20) uses
+  `sw1 = max|w| / qmax` with `qmax = 2**(bits-1) - 1`, i.e. 127 at 8 bits. Why 127 and not 128?
+  What breaks if you instead pick a `scale` ten times smaller? And why does accuracy hold
+  up at 8 and 6 bits but collapse at 2?
+- **Passing answer contains:**
+  - signed `n`-bit integers span −2^(n−1) … 2^(n−1)−1; a symmetric scheme uses ±(2^(n−1)−1)
+    so zero stays at zero and the range is balanced. 127 is the largest positive 8-bit value.
+  - `w ≈ ints × scale`: the ROM stores `ints`; `scale` is one number per matrix, applied
+    once after the accumulator (or folded into the next layer's scale), not once per weight.
+  - a scale too small makes `w / scale` exceed 127: the ints overflow (the harness's
+    `assert`); too large wastes range, so weights collapse onto few integer values.
+  - rounding is the only lossy step; fewer bits means a coarser grid. At 2 bits there are
+    only 3 usable levels (−1, 0, 1), so most of the structure is gone.
+- **Links:** [[layers-weights-biases]]
+- **History:**
+  - 2026-10-20 — raised; implementation written by Claude at his request, not derived.
+
+### `integer-only-inference` — carrying a scale instead of converting back to float
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-20 — asked whether an integer-only network is possible and how it
+  would work. Explained in chat on request; not graded.
+- **Ask:** In layer 1 the weights are 4-bit with scale `s_w`, the pixels are integers
+  0–255 with scale `1/255`. What scale does the accumulator carry, and so what scale must
+  a bias be stored in? Why does the final layer never need converting back to float?
+- **Passing answer contains:**
+  - `(w_int·s_w)(x_int·s_x) = (w_int·x_int)·(s_w·s_x)`: the integer product is exact and the
+    accumulator carries the scale `s_w · s_x`.
+  - a bias is added straight into the accumulator, so it is stored as
+    `round(b / (s_w·s_x))`; that scale is tiny, which is why biases are wide integers.
+  - the output scale is a positive constant, so the argmax of the integer scores equals
+    the argmax of the real ones.
+  - between layers the wide accumulator is rescaled to a narrow activation by
+    `(acc × M) >> n`, with a clamp; `M` stands in for a ratio of scales.
+  - worst-case accumulator = `n_inputs × max|w| × max|x|`; the width must cover it.
+- **Links:** [[symmetric-quantisation]]
+- **History:**
+  - 2026-10-20 — raised and explained in chat; not yet asked back.
+  - 2026-10-20 — the pipeline was then written by Claude (`int_inference` in `train.ipynb`)
+    at his request, so he has not derived it. Ask application, not recitation.
+
+### `rom-hex-layout` — one line is one memory word, and the line number is the address
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-20 — asked how the exported `.hex` files work and why the bias files
+  have 16 lines while the weight files have ~12,000. Explained in chat; not graded.
+- **Ask:** In `w2.hex` (10 × 16, row-major), at which line is the weight from hidden
+  neuron 5 to output neuron 3? And if the FSM walks output neuron 3's weights in order,
+  what address does the counter start at and what does it count to?
+- **Passing answer contains:**
+  - one line = one word; the address is the line number minus 1 (editors count from 1).
+  - address = `neuron × n_inputs + input`, so output 3, input 5 is `3 × 16 + 5 = 53`, line 54.
+  - neuron 3's weights are addresses 48 … 63: a counter that starts at `3 × 16` and counts
+    up by one for `n_inputs` steps.
+  - the line count is the number of weights or biases (one per connection, one per
+    neuron), and the word width is the digit count × 4 bits.
+  - two's complement: the top bit of the word is the sign (`FF` = −1 at 8 bits).
+- **Links:** [[vector-declaration-syntax]], [[layers-weights-biases]]
+- **History:**
+  - 2026-10-20 — raised and explained in chat; not yet asked back.
 
 ---
 

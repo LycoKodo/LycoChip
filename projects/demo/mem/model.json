@@ -1,0 +1,7 @@
+{
+ "M": 9065027,
+ "shift": 32,
+ "qmax_act": 127,
+ "bias_bits": 24,
+ "export_sha256": "774e15040b7b71ae084ffa2230a90bb1f4e5380940c40d3ed413eb8b5a42ae51"
+}

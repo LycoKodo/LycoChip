@@ -1,0 +1,104 @@
+set_global_assignment -name FAMILY "Cyclone IV E"
+set_global_assignment -name DEVICE EP4CE6E22C8
+set_global_assignment -name TOP_LEVEL_ENTITY demo_top
+set_global_assignment -name VERILOG_FILE rtl/argmax.v
+set_global_assignment -name VERILOG_FILE rtl/bias_rom.v
+set_global_assignment -name VERILOG_FILE rtl/controller.v
+set_global_assignment -name VERILOG_FILE rtl/demo_top.v
+set_global_assignment -name VERILOG_FILE rtl/frame_rx.v
+set_global_assignment -name VERILOG_FILE rtl/hidden_buf.v
+set_global_assignment -name VERILOG_FILE rtl/image_buf.v
+set_global_assignment -name VERILOG_FILE rtl/mac.v
+set_global_assignment -name VERILOG_FILE rtl/post.v
+set_global_assignment -name VERILOG_FILE rtl/result_tx.v
+set_global_assignment -name VERILOG_FILE rtl/seg7.v
+set_global_assignment -name VERILOG_FILE rtl/uart_rx.v
+set_global_assignment -name VERILOG_FILE rtl/uart_tx.v
+set_global_assignment -name VERILOG_FILE rtl/weight_rom.v
+set_global_assignment -name SDC_FILE demo.sdc
+
+# Unassigned pins stay tri-stated inputs so nothing on the board is driven
+# by accident.
+set_global_assignment -name RESERVE_ALL_UNUSED_PINS "AS INPUT TRI-STATED"
+
+# Emit a raw .rbf next to the .sof, for writing the EPCS config flash.
+set_global_assignment -name GENERATE_RBF_FILE ON
+
+# Match the server core count (i5-6300U, 4 threads).
+set_global_assignment -name NUM_PARALLEL_PROCESSORS 4
+
+# --- OMDAZZ Cyclone IV board V3.0 pinout ------------------------------------
+# Source: ARCHITECTURE.md "Pins" (vendor pin PDF and example .qsf).
+# NOTE: no trailing "; #" comments here -- the QSF parser rejects them.
+
+# 50 MHz oscillator and the RESET key (active low).
+set_location_assignment PIN_23 -to clk
+set_location_assignment PIN_25 -to rst_n
+
+# UART through the MAX3232 (RS-232 levels on the connector).
+set_location_assignment PIN_115 -to uart_rx
+set_location_assignment PIN_114 -to uart_tx
+
+# LEDs, active low. PIN_84 is physically LED1 (silkscreen reversed vs vendor table).
+set_location_assignment PIN_84 -to led_n[0]
+set_location_assignment PIN_85 -to led_n[1]
+set_location_assignment PIN_86 -to led_n[2]
+set_location_assignment PIN_87 -to led_n[3]
+
+# 7-segment segments SEG0..SEG7 (a..g, dp), active low.
+set_location_assignment PIN_128 -to seg_n[0]
+set_location_assignment PIN_121 -to seg_n[1]
+set_location_assignment PIN_125 -to seg_n[2]
+set_location_assignment PIN_129 -to seg_n[3]
+set_location_assignment PIN_132 -to seg_n[4]
+set_location_assignment PIN_126 -to seg_n[5]
+set_location_assignment PIN_124 -to seg_n[6]
+set_location_assignment PIN_127 -to seg_n[7]
+
+# 7-segment digit enables DIG1..DIG4, active low.
+set_location_assignment PIN_133 -to dig_n[0]
+set_location_assignment PIN_135 -to dig_n[1]
+set_location_assignment PIN_136 -to dig_n[2]
+set_location_assignment PIN_137 -to dig_n[3]
+
+# I/O standard, one line per bit.
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to clk
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to rst_n
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to uart_rx
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to uart_tx
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led_n[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led_n[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led_n[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to led_n[3]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[3]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[4]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[5]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[6]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to seg_n[7]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to dig_n[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to dig_n[1]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to dig_n[2]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to dig_n[3]
+
+# Drive strength on every output. 8mA is what the fitter already chose by
+# default; stating it removes Warning 15714 (incomplete I/O assignments).
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to uart_tx
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to led_n[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to led_n[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to led_n[2]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to led_n[3]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[2]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[3]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[4]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[5]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[6]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to seg_n[7]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to dig_n[0]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to dig_n[1]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to dig_n[2]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "8MA" -to dig_n[3]

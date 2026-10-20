@@ -24,6 +24,8 @@ incremental_db/
 # ---- python ------------------------------------------------------------
 __pycache__/
 *.pyc
+# torchvision downloads MNIST here; re-fetched on demand (~65 MB)
+projects/mnist/model/data/
 
 # ---- scratch -------------------------------------------------------------
 backup/readback.bin

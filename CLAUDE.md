@@ -235,6 +235,10 @@ golden model and int8 quantisation · **4** one neuron · **5** full network in 
 - LEDs **PIN_84–87** · keys **PIN_88–91** — **all active LOW**
 - The LED silkscreen numbering is **reversed** vs the vendor pin table: PIN_84 is
   physically LED1. Confirmed on hardware.
+- Serial: UART_TXD **PIN_114**, UART_RXD **PIN_115**, through a MAX3232 to an RS-232
+  connector (schematic V2.1). A host needs a USB-to-RS-232 adapter, not 3.3 V TTL.
+- VGA is **output only**: HSYNC 101, VSYNC 103, B 104, G 105, R 106, one bit per
+  colour through resistors. Nothing on the board can receive video.
 - Vendor docs: `resources/…/Hardware documentation/Development board pin information.pdf`
 
 ### Traps already paid for
@@ -249,11 +253,24 @@ golden model and int8 quantisation · **4** one neuron · **5** full network in 
 - **A missing pin location is not an error** — the fitter silently picks one. Audit
   `<name>.pin`: the `User` column is `Y` if you assigned it, `N` if the fitter did.
   `RESERVE_ALL_UNUSED_PINS` does not protect against this.
+- **Quartus 20.1 ignores an initialiser on an `output reg` in the port list**
+  (`output reg tx = 1'b1`); Icarus honours it, so sim cannot catch it. Put power-up values
+  in an `initial` statement or on an internal reg. Found on `projects/demo` `uart_tx`,
+  2026-10-20, by gate-level sim.
 - `backup/factory_flash_2MB.bin` is the board's original demo image. It is not
   downloadable anywhere. Do not delete it.
 
+### The repo layout
+
+The main design is `projects/mnist/`; its open decisions are listed in its
+`README.md`. Only `projects/<name>/<name>.qsf` is built. The Phase 0 exercises
+(blink, full_adder, button_counter, clock_counter, keytest) were moved to
+`archive/exercises/` on 2026-10-20, unchanged. `git mv` one back to rebuild it. The
+toolchain reference that used to be `README.md` is now `docs/TOOLCHAIN.md`.
+
 ### The build loop
 
+`./lint.sh <name>` → `./sim.sh <name>` (testbenches in `tb/`, strict PASS/FAIL) →
 `./build.sh` (project picker) → `./upload.sh` (build picker). Every build is archived
 under `builds/` with a manifest of the exact sources that produced it, and programming
 **refuses** if the sources on disk have changed since — override with `FORCE=1` only

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Compile a project on lyco-server and pull the bitstreams back.
+# Compile a project with Quartus and pull the bitstreams back.
 #
-#   ./build.sh [project]     default: blink
-#   PLAIN=1 ./build.sh       force plain output (no TUI)
+#   ./build.sh [project]     no name in a terminal: the project picker
+#   PLAIN=1 ./build.sh <p>   force plain output (no TUI); needs a project name
 #
 # Projects live in projects/<name>/ and are self-contained: <name>.qpf,
 # <name>.qsf, <name>.sdc and rtl/. Quartus runs with that directory as CWD,
@@ -39,7 +39,13 @@ if [ -t 1 ] && [ -z "${PLAIN:-}" ] && command -v python3 >/dev/null; then
     exec python3 "$HERE/tools/buildui.py" "$PROJ"
 fi
 
-PROJ=${PROJ:-blink}
+# No silent default: there used to be one (blink), and it went on pointing at a
+# project after that project had been archived.
+if [ -z "$PROJ" ]; then
+    echo "usage: $0 <project>" >&2
+    echo "available: $(python3 tools/artifacts.py list-projects 2>/dev/null | tr '\n' ' ')" >&2
+    exit 1
+fi
 
 # ---- backend selection ----------------------------------------------------
 # Three places Quartus can run, fastest first:
@@ -137,7 +143,15 @@ drun() {
 # The include/exclude set is the same everywhere: --delete does not remove
 # *excluded* files, so db/ and *.rpt survive between builds and Quartus can
 # compile incrementally.
-SRCSYNC="--include=*/ --include=*.v --include=*.sv --include=*.vhd --include=*.qsf --include=*.qpf --include=*.sdc --include=*.tcl --exclude=*"
+#
+# .hex and .mif are memory initialisation files: a ROM's contents are part of
+# the bitstream, so they travel with the RTL. tb/ never does -- testbenches are
+# simulation-only, and must not reach Quartus or move the source hash.
+# db/ and incremental_db/ are Quartus's own and hold .mif files it generates
+# for inferred ROMs: without excluding them, --delete removes those .mif files
+# (they match *.mif) and the next incremental compile fails on unchanged
+# sources (Error 286034, 2026-10-20).
+SRCSYNC="--exclude=tb/ --exclude=db/ --exclude=incremental_db/ --include=*/ --include=*.v --include=*.vh --include=*.sv --include=*.vhd --include=*.qsf --include=*.qpf --include=*.sdc --include=*.tcl --include=*.hex --include=*.mif --exclude=*"
 
 q_sync() {
     case "$BACKEND" in

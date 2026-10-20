@@ -30,9 +30,11 @@ VMQBIN = "$HOME/intelFPGA_lite/20.1/quartus/bin"
 VMDIR  = "$HOME/lycochip-build"
 HERE   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SRCSYNC = ["--include=*/", "--include=*.v", "--include=*.sv", "--include=*.vhd",
+SRCSYNC = ["--exclude=tb/", "--exclude=db/", "--exclude=incremental_db/",
+           "--include=*/", "--include=*.v", "--include=*.vh", "--include=*.sv", "--include=*.vhd",
            "--include=*.qsf", "--include=*.qpf", "--include=*.sdc",
-           "--include=*.tcl", "--exclude=*"]
+           "--include=*.tcl", "--include=*.hex", "--include=*.mif",
+           "--exclude=*"]
 
 
 def _ok(*argv, timeout=10):
@@ -746,7 +748,9 @@ def main():
     proj = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
     if proj is None:
         if not sys.stdin.isatty():
-            proj = "blink"
+            print("no project named, and no terminal to pick one in", file=sys.stderr)
+            print(f"available: {' '.join(artifacts.list_projects()) or 'none'}", file=sys.stderr)
+            sys.exit(1)
         else:
             proj = pick_project()
             print()

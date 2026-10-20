@@ -250,3 +250,117 @@ Start-up belongs after the backend is resolved, not inside the code that guesses
   yet Homebrew did not symlink it into PATH. `brew link docker` is needed first,
   or removing Desktop takes the `docker` command with it.
 - Still undrained: `docs/QUIZ-INBOX.md`.
+
+---
+
+## 2026-10-20 — Exercises archived; repo reorganised around the MNIST design
+
+**Phase:** 0 — foundations. Repo structure only; no RTL changed.
+**Built:** No RTL. The five Phase 0 exercises (`blink`, `full_adder`, `button_counter`,
+`clock_counter`, `keytest`) moved unchanged from `projects/` to `archive/exercises/`.
+`projects/mnist/` created, holding only a `README.md` that lists the open design
+decisions. The old toolchain `README.md` is now `docs/TOOLCHAIN.md`; the new root
+`README.md` is about the chip. Retired `docs/QUIZ-INBOX.md` moved to `archive/docs/`.
+`build.sh` and `tools/buildui.py` no longer fall back to `blink` when no project is named.
+**Verified:** No sim, no hardware, no synthesis. The tooling was checked by running it:
+`./lint.sh` reports no RTL and exits 0; `PLAIN=1 ./build.sh` with no name, and with
+`keytest`, both refuse and print the available list; `artifacts.py resolve keytest`
+still finds `builds/20260922-112233-keytest-995b65b2`, so `./upload.sh` can still
+program it. In a scratch copy with `keytest` put back under `projects/`, discovery lists
+it and its source hash is `995b65b2…`, the same as that archived build. Moving an
+exercise back with `git mv` restores it exactly.
+**Resources:** none, since nothing was synthesised.
+**Learned:** Nothing of Alex's was demonstrated this session. The decision that was his
+is the target system: the Mac sends a handwritten digit, the FPGA runs the inference,
+and the answer comes back. He suggested VGA for the image. The board's VGA port is
+output only (HSYNC/VSYNC plus one bit each of R/G/B, PIN_101/103–106, per the vendor pin
+table and schematic V2.1), so how the image gets in is still an open decision.
+**Stuck on:**
+- The input link. What the board can actually receive: RS-232 through the MAX3232
+  (UART PIN_114/115, which needs a USB-to-RS-232 adapter on the Mac), PS/2, the keys,
+  and JTAG. Listed in `projects/mnist/README.md` with the other open decisions.
+- `9b45dc7` committed `build.sh` and `upload.sh` with mode 100644, down from 100755, so
+  `./build.sh` failed with `permission denied` at HEAD. Most likely a non-mode-preserving
+  rewrite of both files on 2026-09-23. Mode restored to 755 in the working tree;
+  not yet committed.
+- The Phase 0 roadmap items still owed: debouncer, FSM, first testbench. No testbench
+  exists anywhere in the repo. Every `LEARNING.md` card is still at box 1.
+  `pin-assignment-shape` was asked today; awaiting his answer.
+
+## 2026-10-20 — First trained model, 4-bit weights exported
+
+**Phase:** 3 — Python golden model and quantisation
+**Built:** `projects/mnist/model/train.ipynb` (PyTorch, env `LC-MNIST`): a 784 → 16 → 10 network with ReLU, trained 5 epochs on MNIST. `quantise()` and an accuracy harness, then an export cell writing `export/w1.hex`, `export/w2.hex` and `export/meta.json`. `environment.yml` pins the env.
+**Verified:** Python only; no RTL, no sim, no hardware. The exported `.hex` files were read back from disk and decoded in a separate process, then run through a fresh float model with the original biases. That gave 0.9265, the same as the notebook's own 4-bit figure. Float baseline is 0.9349. Weights only are quantised: biases, activations and accumulators are still float.
+**Resources:** none, since nothing was synthesised. For budgeting: 12,704 weights × 4 bits = 50,816 bits, against 276,480 bits of M9K.
+**Learned:** Nothing of Alex's was demonstrated. The decisions that were his: hidden layer of 16 neurons (he tried 64 first, which needs more than 276,480 bits at 8 bits per weight), and 4-bit weights. The reasons are not yet written in `projects/mnist/README.md`. `quantise()` was written by Claude at his request after he was offered the derivation; he has not yet explained it (card `symmetric-quantisation`).
+**Stuck on:**
+- Bias, activation and accumulator formats are undecided; the export leaves biases in float (`meta.json`).
+- Word layout is row-major (index = neuron × n_inputs + input), chosen by Claude as a default. It decides how the control FSM addresses the ROM, so it is his to confirm or change.
+- With a symmetric scale 4 bits use −7…7, so the code for −8 is never used.
+
+## 2026-10-20 — Integer-only inference check, int8 to int64
+
+**Phase:** 3 — Python golden model and quantisation
+**Built:** In `projects/mnist/model/train.ipynb`, replaced the float-simulated quantisation (fake-quant harness and the 4-bit `.hex` export) with a real integer pipeline, `int_inference(bits)`. Training is still float. The trained weights are quantised symmetrically to N bits, then pixels → accumulate → bias → ReLU → rescale by integer multiply and shift → accumulate → argmax are all integer operations. Python big ints where int64 could overflow.
+**Verified:** Python only; no RTL, no sim, no hardware. Test accuracy on the 10,000 MNIST test images, 784 → 16 → 10, rescale calibrated on 5,000 train images: float32 0.9349, int8 0.9343, int16 0.9349, int32 0.9349, int64 0.9349. Compared by accuracy only, not prediction-by-prediction. Biases quantised at the accumulator's scale; activations quantised to the same N.
+**Resources:** none, since nothing was synthesised.
+**Learned:** Nothing of Alex's was demonstrated. He directed the approach: train in float, then test integer accuracy from 8 to 64 bits. The integer pipeline was written by Claude at his request.
+**Stuck on:**
+- Accumulator width observed on the test set: layer 1 needs 22 bits at int8 (30 at int16); layer 2 needs 16 at int8. These are observed maxima, not worst-case bounds. At int32 and int64 the layer-2 accumulator needs 64 and 128 bits, so a machine int64 would overflow at int64.
+- 4-bit and other widths below 8 are not tested in this pipeline yet (one-line change: add the width to the loop). The earlier 4-bit result (0.9265) came from the float-simulated harness, now removed. The stale `export/` directory and `weights_float.npz` are still on disk and are no longer written by the notebook.
+
+## 2026-10-20 — int8 integer model exported with test vectors
+
+**Phase:** 3 — Python golden model and quantisation
+**Built:** `train.ipynb` now builds the integer network in `build_int_net(bits)` and exports the int8 version to `projects/mnist/model/export/`: `w1.hex` (16 × 784) and `w2.hex` (10 × 16) as 8-bit two's complement, `b1.hex` and `b2.hex` as 32-bit words, `test_images.hex` (16 raw-pixel images), `expected.json` (layer-1 accumulators, hidden activations, scores and predictions for those 16) and `meta.json` (shift, multiplier `M`, scales, layout). This replaces the stale 4-bit export of earlier today.
+**Verified:** Python only; no RTL, no sim, no hardware. A separate process read only `export/` and the raw test set, reimplemented the integer forward pass in int64, and got 0.9343 on all 10,000 test images, the same as the notebook's int8 figure. It reproduced `expected.json` exactly (scores, hidden activations and predictions for all 16 vectors), and `test_images.hex` equals the first 16 test images. 15 of those 16 are classified correctly.
+**Resources:** none, since nothing was synthesised. For budgeting: 12,704 weights × 8 bits = 101,632 bits against 276,480 bits of M9K, plus 26 bias words.
+**Learned:** Nothing of Alex's was demonstrated; the pipeline and export were written by Claude at his request.
+**Stuck on:**
+- The rescale between layers is `(acc1 × M + 2^31) >> 32` with `M` = 493,047 (19 bits) and a 21-bit non-negative accumulator, so the product is 40 bits. That is a wide multiply for this part, and `SHIFT` is a free parameter. Choosing it (or a power-of-two scale so the multiply becomes a shift) is a design decision that has not been made.
+- Word layout (row-major) and the choice of int8 for the first hardware target are defaults, not decisions he made.
+
+## 2026-10-20 — HDL scaffold for projects/mnist, sim runner
+
+**Phase:** 0 → 1 (tooling for the first testbench and the MAC)
+**Built:** Toolchain only, no RTL. `projects/mnist/` now has `mnist.qpf`, `mnist.sdc` (50 MHz on `clk`) and `mnist.qsf` (device and globals, top `top`; file list and pin block left empty for Alex). New `sim.sh` runs `tb/*.v` in Icarus with a strict verdict. `lint.sh` resolves submodules from `rtl/` (`-y`). `build.sh`, `buildui.py` and `artifacts.py` now sync and hash `.hex`/`.mif` (ROM contents are part of the bitstream; before this a `$readmemh` file would never have reached Quartus) and exclude `tb/`.
+**Verified:** The runner was checked against six throwaway testbenches in a scratch dir: it passed the correct one (which also read a `.hex` by a project-relative path), and failed one that printed FAIL, one that printed FAIL then PASS, one that never printed PASS, one that never finished (timeout), and one that compiled only because of an implicit net. That last one *passed* on the first version of the runner, which now rejects iverilog's `implicit definition` warning. The rsync filter was run on the real project: the `.hex` files go, `tb/` does not. Old `lint.sh` failed on a file instantiating a sibling module (rc 2); with `-y` it passes in both iverilog and verilator. No Quartus build of `mnist` (nothing to build).
+**Resources:** none, since nothing was synthesised.
+**Learned:** Nothing of Alex's was demonstrated; this was plumbing.
+**Stuck on:**
+- **The export does not match the spec.** Design Spec v0.1 lists 4-bit weights as Decided. `model/export/` is int8: `meta.json` says `weight_bits: 8`, `w1.hex` is 12,544 lines of 2 hex digits with values −127…118, `w2.hex` 160 lines −127…85. The notebook (`EXPORT_BITS = 8`) has never run 4-bit through the integer pipeline, so there is no integer 4-bit accuracy number yet. Either the spec or the export has to change.
+- Observed ranges in `expected.json` (16 images, int8): layer-1 accumulator after ReLU up to 690,580; hidden activations 0…79 (clamp 127); scores −14,966…7,024. `b1` fits in 16 signed bits and `b2` in 10, though stored as 32-bit words. All observed, not worst-case.
+- `test_images.hex` is simulation data but lives beside the weights, so it is hashed as a source; changing it would mark a build stale. Harmless; noted.
+
+## 2026-10-20 — Export switched to 4-bit weights
+
+**Phase:** 3 — Python golden model and quantisation
+**Built:** At Alex's direction, the int8 export was deleted and `train.ipynb` now exports 4-bit weights. `build_int_net` takes `w_bits` and `a_bits` separately: one `bits` used to set both the weight width and the hidden-activation clamp, so going to 4 would have silently clamped hidden values to 0…7. Export: `WEIGHT_BITS = 4`, `ACT_BITS = 8` (unchanged; open decision #1). The export cell now empties `export/` first, so a width change leaves nothing stale. Notebook re-run end to end with the `lc-mnist` kernel.
+**Verified:** Python only; no RTL, no sim, no hardware. A separate process read only `export/` and the raw MNIST test files, and redid the integer forward pass from `meta.json`. It got 0.9275 on all 10,000 test images, matching the notebook, and reproduced `expected.json` exactly (accumulators, hidden values, scores, predictions); `test_images.hex` equals the first 16 test images. Retraining reproduced float 0.9349 and w8/a8 0.9343, the same as before the refactor.
+**Accuracy (10,000 test images):** float 0.9349 · w4/a8 **0.9275** · w4/a4 0.9019 · w8/a8 0.9343 · w16+ 0.9349.
+**Resources:** none synthesised. Weights now 12,704 × 4 = 50,816 bits (18% of 276,480).
+**Learned:** Nothing demonstrated. Alex's decision: 4-bit weights, per Design Spec v0.1. Reason not yet written down.
+**Stuck on:**
+- New ranges over the full test set: layer-1 accumulator (after ReLU) up to 65,478; `b1` −757…1,228, `b2` −19…12 (still stored as 32-bit words); scores −1,174…759; hidden values reach the 127 clamp. Observed, not worst-case.
+- The requantisation multiplier grew: `M` = 9,065,027 is 24 bits (it was 19), because the accumulator range shrank. A 17-bit × 24-bit product.
+- Weights span −7…6 in `w1` and −7…5 in `w2`; the −8 code is never used (symmetric scale).
+- Layout is still the row-major default, not decision #6.
+
+## 2026-10-20 — Article I override: Claude builds a reference demo in projects/demo/
+
+**Phase:** side project (not on the roadmap)
+**Built:** Started. `projects/demo/` holds a complete MNIST demo built by Claude: Mac drawing app, UART, and RTL. `README.md` and `ARCHITECTURE.md` record the override and the contract. Model snapshotted from `projects/mnist/model/export/` by `host/make_mem.py`, checked against `expected.json`.
+**Verified:** not yet (in progress; a later entry will report sim, synthesis and hardware status).
+**Resources:** not yet.
+**Learned:** Nothing of Alex's. Claude stated the conflict with Article I (a finished answer key for the modules he is about to write) and offered the Mac app with a Python stand-in for the FPGA. Alex chose the full demo including RTL, to run on his board. The override covers `projects/demo/` only; `projects/mnist/` stays his.
+**Stuck on:** nothing yet.
+
+## 2026-10-20 — demo (Claude-authored) passes sim and synthesis
+
+**Phase:** side project, under the Article I override for `projects/demo/` only
+**Built:** By Claude through a 37-agent workflow: 14 RTL modules (`demo_top`, `controller`, `uart_rx`/`uart_tx`, `frame_rx`, `image_buf`, `weight_rom`, `bias_rom`, `mac`, `post`, `hidden_buf`, `argmax`, `result_tx`, `seg7`) with a unit testbench each, plus `tb_demo` end to end. Host side: `draw.py` (drawing app), `fpga_link.py`, `check_board.py` (hardware test), `fake_fpga.py`, `golden.py`, `make_mem.py`. Handoff notes in `projects/demo/CLAUDE.md`.
+**Verified:** Sim and synthesis only; not on hardware. Re-run by the main session after the workflow: `./lint.sh demo` clean; `./sim.sh demo` 14/14 PASS, with `tb_demo` matching 16 of 16 images bit for bit (digit and all 10 scores) through the UART pins; `check_board.py --fake` 16/16 PASS; `draw.py --smoke` OK. Every testbench was shown to FAIL on deliberately broken copies.
+**Resources:** from `~/.lycochip-build/projects/demo/demo.fit.summary`, build `builds/20261020-154210-demo-b3a6f1b1`: 882 / 6,272 LEs · 549 / 6,272 registers · 57,216 / 276,480 memory bits · 7 / 30 9-bit multiplier elements · 20 / 92 pins. Fmax 69.04 MHz (Slow 1200mV 85C), worst setup slack +5.516 ns. All 20 pins `User Assignment = Y`.
+**Learned:** Nothing of Alex's (Claude-authored). Toolchain lessons: Quartus 20.1 silently ignores an initialiser on an `output reg` port declaration (Icarus honours it), which made `uart_tx` idle low; it was caught by gate-level sim of the post-fit netlist. Also, `build.sh` was deleting Quartus's own `db/*.mif`, which broke the second build of unchanged sources. Fixed by excluding `db/` and `incremental_db/` from the sync; two consecutive builds then succeeded.
+**Stuck on:** Hardware. No USB-to-RS-232 adapter has been connected yet. The board's DB9 is DCE, so it needs a straight-through cable. Bring-up continues on Alex's Windows machine with native Quartus; `build.sh`/`upload.sh` are Mac-only.
