@@ -2,19 +2,18 @@
 
 FPGA work targeting an **OMDAZZ Altera Cyclone IV board V3.0** (`EP4CE6E22C8N`).
 
-## The two machines
+## Where things run
 
-Compiling and programming happen on different computers, because Quartus has no
-macOS build and your JTAG cable is plugged into the Mac.
+You type every command on the Mac, from this directory. Quartus has no macOS
+build, so `build.sh` runs it in one of three backends (it asks; or set `BACKEND=`):
 
-| | Where | Does what |
+| Backend | Where | clock_counter |
 |---|---|---|
-| **Mac** (this repo) | `~/Desktop/LycoChip` | Edit Verilog, run the scripts, program the board over USB-Blaster |
-| **lyco-server** | `~/lycochip-build` | Runs Quartus. Reached over Tailscale as `ssh lyco` |
+| `local` (default) | Rosetta `centos:7` container on colima, on this Mac. Works offline | ~22 s warm, ~45 s cold |
+| `remote` | lyco-server over `ssh lyco` (Tailscale, LAN fallback) | ~33 s |
+| `vm` | emulated x86-64 Lima VM (`tools/quartus-vm/`). Fallback only | ~115 s |
 
-**You type every command on the Mac, from this directory.** The scripts SSH to the
-server for you; you never need to log in manually. Only the bitstream (~100 KB)
-travels back.
+The board is always programmed from the Mac over USB-Blaster (`./upload.sh`).
 
 ## Layout
 
@@ -41,7 +40,7 @@ a `.qsf` stays relative to that project. Nothing floats at the repo root.
 ```sh
 vim projects/blink/rtl/blink.v   # 1. edit
 ./build.sh                       # 2. pick a project, compile (~25 s)
-./program.sh                     # 3. pick a build, load it (~2 s)
+./upload.sh                     # 3. pick a build, load it (~2 s)
 ```
 
 The board must be **powered on** before step 3.
@@ -60,7 +59,8 @@ With no argument in a terminal you get a selection page:
 
 Naming a project skips it: `./build.sh keytest`.
 
-Then it:
+Then it (the `remote` backend is shown; `local` and `vm` do the same against a
+copy of the project outside the repo):
 
 1. `rsync`es source files only (`.v .sv .vhd .qsf .qpf .sdc .tcl`) into
    `lyco:~/lycochip-build/projects/`
@@ -102,10 +102,10 @@ artifact checksums, and **refuses to run if your sources have changed since**:
 REFUSING TO PROGRAM: sources on disk differ from this build
   The board would run logic that does not match your source tree.
   Rebuild:            ./build.sh blink
-  Or override:  FORCE=1 ./program.sh sram
+  Or override:  FORCE=1 ./upload.sh sram
 ```
 
-## program.sh — write the chip
+## upload.sh — write the chip
 
 With no arguments in a terminal you get an interactive picker:
 
@@ -124,10 +124,10 @@ A `+` after the commit means the tree was dirty at build time.
 Arguments skip the UI and use the newest good build:
 
 ```sh
-./program.sh sram            # volatile, ~2s
-./program.sh flash           # permanent, ~3min
-./program.sh detect          # just check the JTAG chain
-./program.sh sram keytest    # a project other than blink
+./upload.sh sram            # volatile, ~2s
+./upload.sh flash           # permanent, ~3min
+./upload.sh detect          # just check the JTAG chain
+./upload.sh sram keytest    # a project other than blink
 ```
 
 Doing it by hand:
@@ -171,7 +171,7 @@ Three files, then build. Copy `blink.*` as a starting point:
 - `<name>.qpf` — two lines naming the revision
 
 ```sh
-./build.sh mydesign && ./program.sh sram mydesign
+./build.sh mydesign && ./upload.sh sram mydesign
 ```
 
 ## Board facts worth remembering
@@ -180,8 +180,10 @@ Three files, then build. Copy `blink.*` as a starting point:
 - LEDs on PIN_84-87, keys on PIN_88-91 — **all active LOW** (drive `0` to light)
 - The LED silkscreen numbering is **reversed** vs the vendor pin table:
   PIN_84 is physically LED1, PIN_87 is LED4
-- Reports live on the server under `~/lycochip-build/projects/<name>/`:
-  `*.fit.summary` (resource use), `*.sta.summary` (timing), `*.pin` (final pin-out)
+- Every build's full log is archived at `builds/<stamp>-<name>-<hash>/build.log`.
+  The full reports — `*.fit.summary` (resource use), `*.sta.summary` (timing),
+  `*.pin` (final pin-out) — stay in the build directory: `~/.lycochip-build/projects/<name>/`
+  for `local`, `~/lycochip-build/projects/<name>/` on lyco-server for `remote`.
 
 ## Gotchas
 

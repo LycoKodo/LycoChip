@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Program the Cyclone IV over the local USB-Blaster.
 #
-#   ./program.sh                 interactive build picker (arrow keys)
-#   ./program.sh sram  [proj]    latest good build -> FPGA SRAM (volatile)
-#   ./program.sh flash [proj]    latest good build -> EPCS flash (permanent)
-#   ./program.sh detect          just check the JTAG chain
+#   ./upload.sh                 interactive build picker (arrow keys)
+#   ./upload.sh sram  [proj]    latest good build -> FPGA SRAM (volatile)
+#   ./upload.sh flash [proj]    latest good build -> EPCS flash (permanent)
+#   ./upload.sh detect          just check the JTAG chain
 #
 # Bitstreams always come from builds/, never from a mutable scratch directory,
 # so a failed or stale build can never be flashed by accident.

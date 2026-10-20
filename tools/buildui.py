@@ -592,7 +592,7 @@ def render(tel, bld, proj, start, width):
                 verdict = "MET" if sl > 0 else "VIOLATED"
                 a(f"   {fg(MUTED)}TIMING{RESET} {fg(sc)}{verdict}{RESET} "
                   f"{fg(DEEP)}worst setup slack{RESET} {fg(sc)}{sl:+.3f} ns{RESET}")
-            a(f"   {fg(MUTED)}→ output_files/{proj}.{{sof,rbf,svf}}   run {fg(ICE)}./program.sh{RESET}")
+            a(f"   {fg(MUTED)}→ output_files/{proj}.{{sof,rbf,svf}}   run {fg(ICE)}./upload.sh{RESET}")
     else:
         a(f"  {fg(PINK)}⟩⟩{RESET} {fg(PAPER)}{int(el//60):02d}:{int(el%60):02d}{RESET} {fg(DEEP)}elapsed{RESET}")
     return L

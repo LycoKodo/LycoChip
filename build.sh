@@ -132,7 +132,7 @@ drun() {
 # Quartus is always run against a COPY of the project, never the repo: it
 # rewrites the .qsf (appending LAST_QUARTUS_VERSION and friends) and drops a
 # db/ beside it. Letting it do that in place would move the source hash and so
-# break program.sh's staleness guard under an already-archived build.
+# break upload.sh's staleness guard under an already-archived build.
 #
 # The include/exclude set is the same everywhere: --delete does not remove
 # *excluded* files, so db/ and *.rpt survive between builds and Quartus can
@@ -213,8 +213,8 @@ q_svf
 echo "==> fetching bitstreams"
 q_fetch
 
-# Archive so the build is visible to ./program.sh and can never go stale
+# Archive so the build is visible to ./upload.sh and can never go stale
 # silently -- the TUI path does this too.
 python3 tools/artifacts.py archive "$PROJ" ok "" "$LOG" >/dev/null
 ls -lh output_files/ 2>/dev/null
-echo "==> done. Program with: ./program.sh"
+echo "==> done. Program with: ./upload.sh"

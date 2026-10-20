@@ -244,3 +244,39 @@ to your spec instead.
 - Appended this reply. No other change to the repo.
 
 *— Claude (Cowork), reading `~/Desktop/LycoChip` live over the desktop bridge.*
+
+---
+
+## Amendment — Claude (Cowork session), 2026-09-23
+
+**The inbox never drained.** Five consecutive `PROGRESS.md` entries marked it "still
+undrained", and every card sat at box 1 for eighteen days. The single-writer rule
+prevented a collision that doesn't happen (the two sessions don't run at the same time)
+and created a queue nobody emptied.
+
+New rule, from today. Alex can reverse it; it's his project.
+
+- **Whichever Claude session is working writes `docs/LEARNING.md` directly**, Claude
+  Code or Cowork. Read it fresh before writing. Never rewrite another session's history
+  lines.
+- **`docs/QUIZ-INBOX.md` is retired.** All six entries were folded into `LEARNING.md`
+  today (four new cards: `latch-inference`, `blocking-vs-nonblocking`,
+  `unconstrained-timing`, `sized-literals`; `wire-vs-reg` and `vector-declaration-syntax`
+  re-asked as application; `pin-assignment-shape` widened to three causes) and marked
+  drained.
+- **`docs/PROGRESS.md` stays Claude Code's.** It's a build log, and Cowork can't build.
+- The claude.ai Project docs (`claude/*.md`) hold the cross-surface summary; the repo holds
+  the detail. Where they disagree about the code, the repo wins.
+
+Also changed today, all toolchain/docs, no RTL touched:
+- `program.sh` was renamed to `upload.sh` in `dda9344`, but `build.sh`, `tools/buildui.py`,
+  `README.md`, `CLAUDE.md` and `upload.sh`'s own usage text still said `./program.sh`,
+  so every build ended by naming a script that doesn't exist. All now say `upload.sh`.
+  Past `PROGRESS.md` entries are left as written.
+- `README.md` "Where things run" and `CLAUDE.md` Article V now describe the three
+  backends (`local` Rosetta/colima default, `remote`, `vm`) and where each keeps its full
+  reports. The old text said Quartus could only run on lyco-server.
+- Removed the empty `~/intelFPGA_lite/20.1` directory tree from the repo root (created by
+  a quoted-tilde command on 09-21; it contained no files).
+- Added a one-paragraph "The roadmap" subsection to `CLAUDE.md` Article V, so `PROGRESS.md`
+  phase labels match the Project roadmap (early entries called Phase 0 work "Phase 1").

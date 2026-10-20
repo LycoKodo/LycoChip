@@ -195,17 +195,30 @@ has to rediscover it. **Read, do not re-derive.**
 
 ### Where things run
 
-Quartus has no macOS build, and the JTAG cable is on the Mac. That split is permanent.
+Quartus has no macOS build; the JTAG cable is on the Mac. Everything is driven from
+the Mac. `build.sh` picks one of three Quartus backends (`BACKEND=local|remote|vm`):
 
-| | Where | Role |
+| Backend | Where | Notes |
 |---|---|---|
-| Mac | `~/Desktop/LycoChip` | edit RTL, run the scripts, program the board |
-| lyco-server | `~/lycochip-build` | Quartus Prime Lite 20.1.1 at `~/intelFPGA_lite/20.1` |
+| `local` (default) | Rosetta `centos:7` container on colima, on the Mac | ~22 s warm; offline; build dir `~/.lycochip-build/projects/<name>/` |
+| `remote` | lyco-server, `~/lycochip-build` | ~33 s; Quartus Prime Lite 20.1.1 at `~/intelFPGA_lite/20.1` |
+| `vm` | emulated x86-64 Lima VM (`tools/quartus-vm/`) | ~115 s; fallback only |
+
+The Rosetta path needs glibc 2.17 (`centos:7`) **and** libudev removed from the image —
+see `tools/quartus-docker/Dockerfile` and `docs/PROGRESS.md` 2026-09-21. The image is
+saved to `~/.lycochip-build/quartus-image.tar` so it can be restored offline.
 
 `ssh lyco` prefers the tailnet (`100.95.45.18`) and falls back to the LAN
-(`192.168.1.112`) via a `Match exec` in `~/.ssh/config`. All tooling goes through that
-alias, so it is the single point of control. Do not add `HostKeyAlias` — the tailnet path
-is intercepted by Tailscale SSH, which presents a different host key.
+(`192.168.1.112`) via a `Match exec` in `~/.ssh/config`. Do not add `HostKeyAlias` — the
+tailnet path is intercepted by Tailscale SSH, which presents a different host key.
+
+### The roadmap
+
+Phases (full plan and reasoning in the claude.ai Project's `roadmap.md`; use these numbers
+in `PROGRESS.md`): **0** foundations — adders, counter, debouncer, FSM, first testbench ·
+**1** arithmetic — fixed point, multiplier, MAC · **2** memory — M9K ROM/RAM · **3** Python
+golden model and int8 quantisation · **4** one neuron · **5** full network in simulation ·
+**6** on hardware · **7** make it fast. Current: **Phase 0**.
 
 ### The part
 
@@ -241,7 +254,7 @@ is intercepted by Tailscale SSH, which presents a different host key.
 
 ### The build loop
 
-`./build.sh` (project picker) → `./program.sh` (build picker). Every build is archived
+`./build.sh` (project picker) → `./upload.sh` (build picker). Every build is archived
 under `builds/` with a manifest of the exact sources that produced it, and programming
 **refuses** if the sources on disk have changed since — override with `FORCE=1` only
 deliberately. That guard exists to stop Alex debugging new code while the board runs old
