@@ -6,7 +6,7 @@ when linked to this Mac (see `docs/HANDSHAKE.md`, amendment 2026-09-23). Read it
 before writing; never rewrite another session's history lines. Alex does not need to
 touch it.
 
-**Session count: 3**  ← increment at the start of each working session
+**Session count: 4**  ← increment at the start of each working session
 
 **Paths:** since 2026-10-20 the exercise projects these cards cite (`full_adder`,
 `keytest`, `clock_counter`, `blink`, `button_counter`) live in `archive/exercises/`,
@@ -77,6 +77,8 @@ A wrong answer, or the confusion resurfacing in code, sends a card straight back
     symptom survived the fix for a new cause (no trailing newline). Stays box 1.
   - 2026-10-20 — asked by Claude Code (first question, the `led_n` one), at the start
     of `projects/mnist/`, whose `.qsf` he is about to write. Awaiting answer.
+  - 2026-10-20 — re-asked by Claude Code at the start of session 4 (Windows machine,
+    before the first native-Quartus build of `projects/demo`). Awaiting answer.
 
 ### `latch-inference` — why `led` got a latch and `data` didn't
 - **Box:** 1 · **Due:** next session
@@ -330,6 +332,30 @@ A wrong answer, or the confusion resurfacing in code, sends a card straight back
 - **Links:** [[vector-declaration-syntax]], [[layers-weights-biases]]
 - **History:**
   - 2026-10-20 — raised and explained in chat; not yet asked back.
+
+### `valid-pulse`: a one-cycle `valid` means "take the byte now"
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-21. After watching the codebase film, he asked: *"what is actually
+  the valid pin for UART_RX to receive? And how does a valid pin work?"* It was explained
+  in chat on request, and not graded. Note that he called a module port a "pin".
+- **Ask:** `uart_rx` raises `valid` for exactly one cycle per byte. Suppose a bug made
+  `valid` stay high for two cycles. What would `frame_rx` store, and what would happen to
+  the rest of the frame? Then: why does `data` not need to be a pulse as well?
+- **Passing answer contains:**
+  - **Port, not pin.** `valid` is a module output, an internal wire, not a physical pin.
+    The physical receive pin is PIN_115, which reaches `uart_rx`'s `rx` input.
+  - **One cycle.** It is high for exactly one clock cycle per byte. Line 67 clears it on
+    every edge by default, and line 103 sets it on the edge where the stop bit checks out,
+    so it drops again at the next edge.
+  - **Two cycles is a bug.** The consumer acts only on cycles where `valid` is high. Two
+    cycles high means the same byte is written twice, to two consecutive addresses. Every
+    later pixel then lands one address late, and the frame completes one byte early.
+  - **Level vs pulse.** `data` holds its value until the next byte, so a level is fine.
+    `valid` carries the *when*.
+- **Links:** [[blocking-vs-nonblocking]] (the "default, then override" pattern relies on
+  the last non-blocking assignment winning)
+- **History:**
+  - 2026-10-21 — raised and explained in chat; not yet asked back.
 
 ---
 

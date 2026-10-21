@@ -1,6 +1,7 @@
 """Hardware test: the board's replies must equal mem/expected.hex bit for bit.
 
-    python projects/demo/host/check_board.py /dev/cu.usbserial-XXXX
+    python projects/demo/host/check_board.py /dev/cu.usbserial-XXXX   (or COM3)
+    python projects/demo/host/check_board.py JTAG        (over the USB-Blaster, jtag_bridge.py)
     python projects/demo/host/check_board.py --fake      (in-process stand-in, no board)
 
 Sends the 16 images of mem/test_images.hex and compares each reply, the digit
@@ -13,7 +14,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from fpga_link import FpgaLink, LinkError  # noqa: E402
+from fpga_link import LinkError, open_link  # noqa: E402
 
 MEM = os.path.join(HERE, "..", "mem")
 
@@ -39,7 +40,7 @@ def load_vectors(mem=MEM):
 def run(port):
     images, expected = load_vectors()
     try:
-        link = FpgaLink(port)
+        link = open_link(port)
     except LinkError as e:
         print(e)
         print("FAIL")

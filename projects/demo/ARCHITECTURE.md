@@ -14,6 +14,10 @@ Mac app ──RS-232──▶ uart_rx ─▶ frame_rx ─▶ image_buf ─┐
                                                          layer 2: acc ─▶ argmax + result_tx ─▶ uart_tx ──RS-232──▶ Mac
                                                                           └▶ digit latch ─▶ seg7
 controller: one FSM, drives every address and every mac/post/argmax/result_tx strobe.
+
+Second way in and out (added 2026-10-20, for a PC with no RS-232 port):
+host/jtag_bridge.py ──USB-Blaster──▶ vjtag ─▶ jtag_link ─▶ (bytes, OR'd with uart_rx's) ─▶ frame_rx
+                                                jtag_link ◀── reply bytes, tapped from result_tx ─▶ uart_tx
 ```
 
 Network: 784 → 16 (ReLU, requantise) → 10, from `projects/mnist/model/export/` via
@@ -147,6 +151,27 @@ inputs (0..783 / 0..15). FSM:
 memory read. `busy` = state ≠ IDLE. `rst` → IDLE. N = 784 in layer 0, 16 in layer 1.
 `w_addr` is never reset between layers: it reaches 12,544 exactly when layer 1 starts.
 
+### `vjtag`
+`output tck, output tdi, input tdo, output [1:0] ir_in, output cdr, output sdr`
+Altera's `sld_virtual_jtag` (instance index 0, fixed; 2-bit virtual IR). `cdr` / `sdr`
+are its `virtual_state_cdr` / `virtual_state_sdr`: high only while this instance is
+selected. Under Icarus (`__ICARUS__`) and Verilator (`VERILATOR`) it is an idle stub
+(`tck`, `cdr`, `sdr` stay 0), because `sld_virtual_jtag` exists only in Quartus.
+
+### `jtag_link`
+`input clk, output reg [7:0] rx_data, output reg rx_valid, input tx_start, input [7:0] tx_data,`
+`input tck, input tdi, output tdo, input [1:0] ir_in, input cdr, input sdr`
+Virtual IR 1 = WRITE: Capture-DR resets a bit counter; every 8 Shift-DR bits (LSB first)
+form one byte, delivered as a one-cycle `rx_valid` with `rx_data` in the `clk` domain,
+exactly like `uart_rx`'s output. A partial byte at the end of a scan is dropped. Virtual
+IR 2 = READ: Capture-DR loads 184 bits, `{reply[21], …, reply[0], 3'b0, count[4:0]}`,
+shifted out LSB first. `count` (0..22) is the number of reply bytes captured. A byte
+is captured on each `tx_start` from `result_tx` (the same bytes `uart_tx` sends) while
+`count < 22`, and `count` increments the cycle after its byte is stored. Every
+`rx_valid` clears `count` to 0. Crossing `tck` → `clk` is a toggle through 2 FFs, with
+the byte held stable for 8 `tck` cycles. Crossing `clk` → `tck` is unsynchronised, so
+the host reads twice and requires both reads to agree.
+
 ### `demo_top #(parameter CLKS_PER_BIT = 434, parameter TIMEOUT = 2500000)`
 Ports (these are the `.qsf` pin names): `input clk, input rst_n, input uart_rx,`
 `output uart_tx, output [3:0] led_n, output [7:0] seg_n, output [3:0] dig_n`.
@@ -154,7 +179,10 @@ Wiring only, plus: `rst_n` 2-FF synchronised → `rst`; x mux `x = layer ? hid_q
 `hidden_buf.we = post_done`, `.waddr = j`, `.wdata = post.h`, `.raddr = x_raddr[3:0]`;
 `result_tx.we = sc_we`, `.widx = j`, `.wscore = acc[15:0]`; `argmax.en = am_en`,
 `.idx = j`, `.score = acc[15:0]`; on `send` latch `argmax.best_idx` into the displayed
-digit and set `result_valid` (cleared by `rst`).
+digit and set `result_valid` (cleared by `rst`). `frame_rx` takes bytes from either
+source: `rx_valid = uart_rx.valid | jtag_link.rx_valid`, `rx_data = jtag_link.rx_valid ?
+jtag_link.rx_data : uart_rx.data` (the host uses one link at a time).
+`jtag_link.tx_start` / `.tx_data` tap `result_tx`'s outputs to `uart_tx`.
 LEDs (active low): `led_n[0]` = ~receiving, `led_n[1]` = ~busy, `led_n[2]` =
 ~result_valid, `led_n[3]` = ~heartbeat (bit 24 of a free-running counter, ~1.5 Hz: proves
 the clock runs). The heartbeat alone does not prove a load: the flash's `blink` also
@@ -184,6 +212,16 @@ The board's DB9 is DCE (transmits on pin 2): a straight-through cable, not null-
 - FPGA → Mac: 22 bytes: `0xC3`, digit (0..9), then 10 × int16 little-endian scores.
 - The Mac waits for the reply (or a 2 s timeout) before sending another frame. The host
   checks the scores against `host/golden.py` bit for bit; a match is the hardware test.
+
+### Over JTAG instead (`host/jtag_bridge.py`, port name `JTAG` in the host tools)
+
+The same bytes in both directions, through the USB-Blaster. The host drives a persistent
+`quartus_stp -s` Tcl shell:
+
+1. Virtual IR 1, then one DR scan of 6,288 bits: `A5 5A` + 784 pixels, byte 0 in the
+   least significant bits (shifted first).
+2. Virtual IR 2, then 184-bit DR scans until `count` = 22. Read once more and require
+   the same 184 bits. The reply is bytes 1..22 of that value.
 
 ## Verification
 

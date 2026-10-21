@@ -8,12 +8,14 @@ set_global_assignment -name VERILOG_FILE rtl/demo_top.v
 set_global_assignment -name VERILOG_FILE rtl/frame_rx.v
 set_global_assignment -name VERILOG_FILE rtl/hidden_buf.v
 set_global_assignment -name VERILOG_FILE rtl/image_buf.v
+set_global_assignment -name VERILOG_FILE rtl/jtag_link.v
 set_global_assignment -name VERILOG_FILE rtl/mac.v
 set_global_assignment -name VERILOG_FILE rtl/post.v
 set_global_assignment -name VERILOG_FILE rtl/result_tx.v
 set_global_assignment -name VERILOG_FILE rtl/seg7.v
 set_global_assignment -name VERILOG_FILE rtl/uart_rx.v
 set_global_assignment -name VERILOG_FILE rtl/uart_tx.v
+set_global_assignment -name VERILOG_FILE rtl/vjtag.v
 set_global_assignment -name VERILOG_FILE rtl/weight_rom.v
 set_global_assignment -name SDC_FILE demo.sdc
 

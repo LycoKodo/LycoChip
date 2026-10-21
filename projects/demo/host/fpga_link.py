@@ -41,9 +41,23 @@ class BadReply(LinkError):
 
 def list_ports():
     """Serial device paths, /dev/cu.* first (on macOS the cu.* node is the one
-    to open: tty.* blocks waiting for carrier detect)."""
+    to open: tty.* blocks waiting for carrier detect), then the JTAG link if
+    quartus_stp is installed (jtag_bridge.py)."""
     devs = [p.device for p in serial.tools.list_ports.comports()]
-    return sorted(devs, key=lambda d: (not d.startswith("/dev/cu."), d))
+    devs = sorted(devs, key=lambda d: (not d.startswith("/dev/cu."), d))
+    from jtag_bridge import JTAG, find_quartus_stp
+    if find_quartus_stp():
+        devs.append(JTAG)
+    return devs
+
+
+def open_link(port):
+    """A link to the board: JtagLink for a port named "JTAG ...", else FpgaLink.
+    Both have infer(pixels) -> (digit, scores, ms), close(), and `with`."""
+    if port.upper().startswith("JTAG"):
+        from jtag_bridge import JtagLink
+        return JtagLink(port)
+    return FpgaLink(port)
 
 
 class FpgaLink:

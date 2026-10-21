@@ -14,3 +14,10 @@ set_false_path -from [get_ports {rst_n uart_rx}]
 # host mid-bit; LEDs and the 7-segment display are read by eye. A few ns of
 # clock-to-pin delay cannot matter for any of them, so they are not timed.
 set_false_path -to [get_ports {uart_tx led_n[*] seg_n[*] dig_n[*]}]
+
+# The Virtual JTAG hub (vjtag / jtag_link) runs on the cable's TCK, which has
+# no relation to clk. 10 MHz is above any USB-Blaster's TCK (6 MHz). jtag_link
+# crosses between the two domains by handshake (see jtag_link.v), so the
+# paths between them are not timed.
+create_clock -name altera_reserved_tck -period 100.000 [get_ports {altera_reserved_tck}]
+set_clock_groups -asynchronous -group [get_clocks {clk}] -group [get_clocks {altera_reserved_tck}]

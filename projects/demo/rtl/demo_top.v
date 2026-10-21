@@ -5,6 +5,8 @@
 //
 // Wiring only, plus the few registers the contract puts here:
 //
+//   input    frame_rx takes bytes from uart_rx or from jtag_link (the
+//            USB-Blaster), whichever delivers one; replies go out on both.
 //   rst      rst_n (KEY RESET, active low, asynchronous) through a 2-FF
 //            synchroniser; active high and synchronous everywhere else.
 //   x mux    layer 0 reads the image, layer 1 the hidden values. image_buf and
@@ -57,6 +59,47 @@ module demo_top #(
         .valid (rx_valid)
     );
 
+    // ---- JTAG link (the second way in and out) --------------------------------
+    // Bytes from the host over the USB-Blaster reach frame_rx alongside
+    // uart_rx's; the host uses one link at a time. The reply is tapped from
+    // result_tx below. See jtag_link.v.
+    wire       jtck;
+    wire       jtdi;
+    wire       jtdo;
+    wire [1:0] jir;
+    wire       jcdr;
+    wire       jsdr;
+    wire [7:0] jt_data;
+    wire       jt_valid;
+    wire       tx_start;
+    wire [7:0] tx_data;
+
+    vjtag u_vjtag (
+        .tck   (jtck),
+        .tdi   (jtdi),
+        .tdo   (jtdo),
+        .ir_in (jir),
+        .cdr   (jcdr),
+        .sdr   (jsdr)
+    );
+
+    jtag_link u_jtag_link (
+        .clk      (clk),
+        .rx_data  (jt_data),
+        .rx_valid (jt_valid),
+        .tx_start (tx_start),
+        .tx_data  (tx_data),
+        .tck      (jtck),
+        .tdi      (jtdi),
+        .tdo      (jtdo),
+        .ir_in    (jir),
+        .cdr      (jcdr),
+        .sdr      (jsdr)
+    );
+
+    wire [7:0] in_data  = jt_valid ? jt_data : rx_data;
+    wire       in_valid = jt_valid | rx_valid;
+
     wire       frame_enable;
     wire       img_we;
     wire [9:0] img_waddr;
@@ -68,8 +111,8 @@ module demo_top #(
         .clk       (clk),
         .rst       (rst),
         .enable    (frame_enable),
-        .rx_data   (rx_data),
-        .rx_valid  (rx_valid),
+        .rx_data   (in_data),
+        .rx_valid  (in_valid),
         .wr_en     (img_we),
         .wr_addr   (img_waddr),
         .wr_data   (img_wdata),
@@ -190,8 +233,6 @@ module demo_top #(
 
     // ---- result out ---------------------------------------------------------------
     wire       tx_busy;
-    wire       tx_start;
-    wire [7:0] tx_data;
 
     result_tx u_result_tx (
         .clk      (clk),

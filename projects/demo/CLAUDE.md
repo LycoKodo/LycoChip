@@ -41,6 +41,22 @@ Each module's testbench was proven able to fail: the module was deliberately bro
 scratch copy and the testbench reported FAIL. `tb_demo` FAILs if the rounding in `post` is
 dropped, if the mux inputs are swapped, or if `w_addr` is reset between layers.
 
+## Update, later on 2026-10-20: running on the board, over JTAG (Windows PC)
+
+The PC has no RS-232 port, so the design gained a second link through the USB-Blaster:
+`rtl/vjtag.v` + `rtl/jtag_link.v`, `host/jtag_bridge.py`, port `JTAG (USB-Blaster)` in
+`check_board.py` and `draw.py` (now the default when Quartus is found). The contract is in
+`ARCHITECTURE.md` ("vjtag", "jtag_link", "Over JTAG instead"). The UART path is unchanged.
+
+- Quartus here is **25.1std**, not 20.1. Build in a copy (`C:\Users\Alex\.lycochip-build\projects\demo\`),
+  never in the repo. Program with `quartus_pgm -c "USB-Blaster [USB-0]" -m JTAG -o "p;demo.sof"`.
+- `py -3.12 projects\demo\host\check_board.py JTAG` → **16/16 PASS on hardware**, ~14 ms per image.
+  Fitter: 1,468 LEs · 1,022 registers · 57,216 memory bits · 7 multiplier elements · 20 pins.
+- Sim on Windows: Icarus at `C:\iverilog\bin`. 15/15 testbenches PASS, including the new
+  `tb_jtag_link`, which was also shown to FAIL on 7 broken copies.
+- Still untested on hardware: the RS-232 path (no cable). Steps 2–5 below were written
+  before any of this; the details in `docs/PROGRESS.md` supersede them.
+
 ## Moving to Windows
 
 ### 1. Get the files across

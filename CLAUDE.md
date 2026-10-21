@@ -212,6 +212,22 @@ saved to `~/.lycochip-build/quartus-image.tar` so it can be restored offline.
 (`192.168.1.112`) via a `Match exec` in `~/.ssh/config`. Do not add `HostKeyAlias` — the
 tailnet path is intercepted by Tailscale SSH, which presents a different host key.
 
+**Windows PC (since 2026-10-20).** Quartus Prime Lite **25.1std** at
+`C:\altera_lite\25.1std\quartus\bin64` (not on PATH), USB-Blaster driver working.
+`build.sh` / `upload.sh` / `sim.sh` do not run there. For `projects/demo` the Windows equivalent is
+`demo.cmd` at the repo root (`projects/demo/host/demo_tui.py`): one menu to build, program, run
+`check_board.py JTAG` and open `draw.py`, archiving in `builds/` with upload.sh's staleness guard. Build in a copy of the project under
+`C:\Users\Alex\.lycochip-build\projects\<name>\` with `quartus_sh --flow compile <name>`,
+never in the repo. Program with `quartus_pgm -c "USB-Blaster [USB-0]" -m JTAG -o "p;<name>.sof"`.
+Its SRAM load does take on this board: proven on `demo` by a display pattern the flash
+design cannot make. `jtagconfig` names the part `10CL006/10CL010`; that is the same IDCODE
+(`020F10DD`) as the EP4CE6, not a wrong board. git there has `core.autocrlf=true`, so
+sources are CRLF on disk; Quartus and Icarus read them fine (checked). Icarus Verilog 12 is
+at `C:\iverilog\bin` (winget `Icarus.Verilog`, `--source winget`); no verilator or perl.
+No serial port other than the motherboard's COM1, so `projects/demo` talks to the board
+over JTAG (`host/jtag_bridge.py`). **`quartus_stp` holds back everything it writes to a
+pipe until it exits**, even after `flush stdout`: talk to it over a socket, not stdin/stdout.
+
 ### The roadmap
 
 Phases (full plan and reasoning in the claude.ai Project's `roadmap.md`; use these numbers

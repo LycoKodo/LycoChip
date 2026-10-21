@@ -7,9 +7,10 @@
                                                  close after ~1 s; fails unless the answer is 7
                                                  (and, on a board, the scores match golden)
 
-Port "Simulate (no board)" runs golden.Model on the Mac. Any other port sends
-the frame over RS-232 (fpga_link.py) and compares the board's 10 scores with
-golden.Model's, bit for bit.
+Port "Simulate (no board)" runs golden.Model on the Mac. "JTAG (USB-Blaster)"
+sends the frame through the programming cable (jtag_bridge.py); any other port
+sends it over RS-232 (fpga_link.py). Either way the board's 10 scores are
+compared with golden.Model's, bit for bit.
 
 The drawing is kept in a PIL image alongside the canvas (the canvas is never
 screenshotted) and preprocessed the way MNIST was made: crop to the ink,
@@ -127,6 +128,9 @@ class App:
                                      postcommand=self.refresh_ports)
         self.port_box.pack(side="left", padx=(8, 0))
         self.refresh_ports()
+        from jtag_bridge import JTAG
+        if JTAG in self.port_box["values"]:
+            self.port_var.set(JTAG)
         if fake is not None:
             self.port_var.set(fake.port)
 
@@ -206,12 +210,12 @@ class App:
         self.port_box["values"] = [SIMULATE] + ports
 
     def get_link(self, port):
-        from fpga_link import FpgaLink
+        from fpga_link import open_link
         if self.link is not None and self.link.port != port:
             self.link.close()
             self.link = None
         if self.link is None:
-            self.link = FpgaLink(port)
+            self.link = open_link(port)
         return self.link
 
     # --- recognition -------------------------------------------------------
