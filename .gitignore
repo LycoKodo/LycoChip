@@ -38,3 +38,7 @@ backup/readback.bin
 
 # ---- macOS ---------------------------------------------------------------
 .DS_Store
+
+# ---- lab-box CAD --------------------------------------------------------
+# Python venv for CadQuery (recreate: see cad/lab-box/README.md)
+.venv/
