@@ -41,8 +41,12 @@ mostly grafts from demo-first.
    20 × 3 flat. Nothing metal may sit over the 22 × 22 mm lead ring.
 3. **HS10 lugs run N–S**, both tags and joints in heat-shrink, ≥ 5 mm from any header pin
    or Dupont housing *after* the ±4 mm photo tolerance. Do not bend tags at the end cap.
-4. **KSD9700 75 °C** on a wing of the top plate ≥ 10 mm above the leads, held by a
+4. **KSD9700 75 °C (80 °C if 75 is not buyable; the only named-maker part found is 80 °C, LCSC C51934112)** on a wing of the top plate ≥ 10 mm above the leads, held by a
    screwed FR4 strap (2 × M2) over Kapton. No cable ties. Case treated as live.
+   **Risk (docs agent, 2026-10-23):** the top plate sits closer to the heater than the
+   spreader position `research/thermal-safety.md` used for its 75 °C margin, so the
+   thermostat may nuisance-trip at the 60 °C setpoint. Measure the trip in place
+   (§6 step 7) before choosing 75 vs 80 °C.
 5. **Thermocouple**: insulated junction, in a blind Kapton-lined groove in the spreader's
    contact face at the package centre. The lead exits downstream and is anchored 20 mm along.
 6. **Spring force readable**: a soft spring (~1–2 N/mm), target 8 N (range 5–10 N), with an
@@ -52,7 +56,8 @@ mostly grafts from demo-first.
 8. **Back-support post**: several sites in the keel (centre and ±6 mm in X and Y) to dodge
    unknown bottom-side parts; insulating (nylon/ASA) tip, height set with a paper feeler.
    Fixes modelling finding: the concept's nylon screw in a standoff cannot be assembled.
-9. ≥ 5 mm air (target 25 mm) between any printed part and heater metal; no printed
+9. ≥ 5 mm air (target 25 mm; the research asks for ASA within ~15 mm of the heater, so any
+   PETG part closer than 15 mm is a flagged exception) between any printed part and heater metal; no printed
    feature in the plume above the HS10. Silicone/PTFE wire within 15 mm of the heater.
 10. No screw tip may protrude below the top plate toward the board.
 
@@ -82,7 +87,7 @@ mostly grafts from demo-first.
 19. **Board USB-B blocked** by a printed blank with a pull tab: "NOT USED — 5 V ARRIVES
     METERED VIA DC JACK".
 20. **12 V chain**: panel barrel jack → **panel-mount fuse holder, 1 A fast** (reachable
-    from outside) → KSD9700 → 18–22 Ω HS10 → low-side D4184 → straight back to the
+    from outside) → KSD9700 → 18–22 Ω HS10 (order as "HS10 18R"; "R18" is 0.18 Ω) → low-side **opto-isolated** D4184 module → straight back to the
     adapter's negative, never through the star ground.
 21. **USB-Blaster lives inside**, IDC plug permanently seated, ribbon strain-relieved;
     only its USB cable exits, through a labelled clamp ("DO NOT UNPLUG JTAG WHILE
@@ -90,7 +95,8 @@ mostly grafts from demo-first.
     (Concept had it hanging outside through a front notch.)
 22. Pico and logic-analyser USB: printed backstop rib behind each USB end plus an
     external tie anchor. LA connector may be Mini-B, not USB-C: MEASURE.
-23. Fan runs from Pico VBUS (5 V fan) or 12 V (12 V fan), **never** the board's header
+23. Fan switch: **AO3400A** low-side (the opto D4184 needs ≥ ~6 V load supply and cannot
+    switch a 5 V fan). Fan runs from Pico VBUS (5 V fan) or 12 V (12 V fan), **never** the board's header
     rails (that would pollute the INA226 reading).
 
 ### 3.5 Airflow and sensors
@@ -113,7 +119,8 @@ mostly grafts from demo-first.
     METERED) · HEATER 12V IN · FUSE 1A · AIR IN · AIR OUT.
 30. Front nameplate: "KNOBS: HEAT · AIR · CLOCK   EYES: CHIP TEMP · AIR TEMP · POWER · LOGIC".
 31. Safety chain on a visible surface: "12V → FUSE 1A → THERMOSTAT 75°C → MOSFET → HEATER".
-    I²C map: 0x40 INA226 · 0x60 Si5351 · 0x77 BME280. A unit-ID plate (§10).
+    I²C map: 0x40 INA226 · 0x60 Si5351 · 0x77 BME280 (0x76 if a GY-BME280 clone is bought;
+    engrave after the part is chosen). A unit-ID plate (§10).
 32. Visitor face chosen **after** measuring which way the 7-segment digits read.
 
 ## 4. Coordinates
@@ -167,9 +174,11 @@ Peltier cooling, core-voltage control, camera, custom PCB.
 2. Spreader stock: **20 mm square Al bar filed to 18 mm** / stacked 20 × 3 flat.
 3. Heater resistor: **18 Ω** / 22 Ω (both HS10-class; 10 Ω ruled out).
 4. Fan: **5 V 4010 from Pico VBUS** / 12 V 4-wire PWM fan (speed feedback).
-5. Remote power control of the FPGA (§10): **include a 5 V load switch driven by the Pico** / leave manual.
+5. Remote power control of the FPGA (§10): **include a 5 V high-side load switch driven by the
+   Pico** (part not yet chosen) / leave manual.
 6. Si5351 in v1: **include** (cheap) / defer until the P1-34 continuity check.
-7. Budget: local fast route ~AUD 300–340 vs AliExpress ~105–180 (slow); prices unverified.
+7. Budget: see `docs/lab-box/BOM.md` (~AUD 314–317 local / ~123–208 AliExpress, excl. shipping
+   and several unpriced lines; all unverified).
 
 ## 10. Fleet-ready (the long-term goal)
 
