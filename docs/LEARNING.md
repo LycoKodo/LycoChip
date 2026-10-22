@@ -333,6 +333,29 @@ A wrong answer, or the confusion resurfacing in code, sends a card straight back
 
 ---
 
+### `plastic-heat-creep` — why parts near the heater can't be PLA or PETG
+- **Box:** 1 · **Due:** next session
+- **Raised:** 2026-10-23 — asked "what's an ASA arm?" about the Lab Box clamp concepts
+  (`cad/lab-box/concepts/`). Explained: ASA is a printing plastic with a heat-deflection
+  temperature of ~93–100 °C vs PETG ~68 °C and PLA ~57 °C (filament makers' data sheets,
+  via `docs/lab-box/research/modules-thermal-mech.md`), and a loaded part near its
+  softening point creeps.
+- **Ask:** The clamp arm holds the heater on the FPGA with a spring, a few cm above a
+  65 °C spreader. You print it in PETG. On day one every run is fine. What do you expect
+  to see in the shmoo data after a week of runs, and why? Name two different fixes.
+- **Passing answer contains:**
+  - heat-deflection temperature is where a loaded bar bends a set amount; well below it
+    a plastic under constant load still **creeps** (deforms slowly), faster the closer
+    it is to that temperature.
+  - creep lowers the clamp force → worse thermal contact → the same heater power gives a
+    lower package temperature → runs drift and stop being repeatable. A slow drift, not
+    a visible failure.
+  - fixes: a material with margin (ASA, or metal), or keep plastic out of the hot load
+    path entirely (concept 3's metal C-frame); a spring keeps force roughly constant as
+    parts move.
+- **History:**
+  - 2026-10-23 — raised (conceptual question), explained on request. Not yet quizzed.
+
 ## Retired
 
 *(nothing yet — a card lands here at box 5, once Alex has explained it correctly and
