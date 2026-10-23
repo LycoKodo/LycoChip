@@ -42,3 +42,4 @@ backup/readback.bin
 # ---- lab-box CAD --------------------------------------------------------
 # Python venv for CadQuery (recreate: see cad/lab-box/README.md)
 .venv/
+cad/lab-box/viewer/lab_box.json

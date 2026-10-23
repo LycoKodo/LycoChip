@@ -1,0 +1,174 @@
+<title>Agent Lab Box</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 3D bench on the left, an instrument-style readout panel on the right; stacks on phones */
+:root{--bg:#eef1f3;--panel:#ffffff;--fg:#1b2329;--muted:#5d6b75;--line:#d3dae0;--accent:#c4561b;--chip:#e6ebef;
+--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12171b;--panel:#1a2126;--fg:#e4e9ec;--muted:#93a1ab;--line:#2c363d;--accent:#f08a4b;--chip:#232c32;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#12171b;--panel:#1a2126;--fg:#e4e9ec;--muted:#93a1ab;--line:#2c363d;--accent:#f08a4b;--chip:#232c32;color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);display:flex;flex-direction:column;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-sizing:border-box;gap:10px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
+h1{font-size:1.25rem;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:.85rem}
+main{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;min-height:0}
+#stage{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel);min-height:360px}
+#stage canvas{display:block;width:100%;height:100%;cursor:pointer}
+#tools{position:absolute;left:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap}
+button{font:500 .78rem var(--mono);background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:5px 9px;cursor:pointer}
+button:hover,button:focus-visible{border-color:var(--accent);outline:none}
+button[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+#loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font:.85rem var(--mono)}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;overflow:auto;min-width:0;display:flex;flex-direction:column;gap:10px}
+.kind{font:500 .7rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+aside h2{margin:0;font-size:1.1rem;text-wrap:balance}
+.part{font:.75rem var(--mono);color:var(--muted)}
+dl{margin:0;display:grid;gap:10px}
+dt{font:600 .72rem var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+dd{margin:2px 0 0;line-height:1.5;font-size:.9rem}
+.tournav{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+#step{font:.75rem var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.tour{margin:0;padding:0;list-style:none;display:grid;gap:2px;counter-reset:t}
+.tour li{counter-increment:t}
+.tour button{width:100%;text-align:left;display:flex;gap:8px;align-items:baseline;background:none;border:1px solid transparent;font:.82rem var(--sans);padding:5px 6px}
+.tour button::before{content:counter(t,decimal-leading-zero);font:.7rem var(--mono);color:var(--muted)}
+.tour button small{margin-left:auto;font:.65rem var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tour button[aria-current="true"]{background:var(--chip);border-color:var(--accent)}
+.note{font-size:.75rem;color:var(--muted);line-height:1.45}
+@media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:55vh auto}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header><h1>Agent Lab Box</h1><span class="sub">MVP CAD v0.1 · click any part · drag to orbit, scroll to zoom</span></header>
+<main>
+  <div id="stage"><div id="loading">Loading model (6.9 MB)…</div>
+    <div id="tools"><button id="lidBtn" aria-pressed="false">Show case</button><button id="resetBtn">Reset view</button><button id="isoBtn">Isolate part</button><button id="xrayBtn" aria-pressed="false">X-ray</button></div>
+  </div>
+  <aside aria-live="polite">
+    <div class="kind" id="kind">Overview</div>
+    <h2 id="title">An instrument rack for one chip</h2>
+    <div class="part" id="partname">Click a part in the model, or pick one below.</div>
+    <dl>
+      <div><dt>What it is</dt><dd id="what">A box that holds the FPGA board under a heater clamp, with sensors and a controller around it, so an AI agent can change the chip's real physical conditions and measure what happens.</dd></div>
+      <div><dt>Why it exists</dt><dd id="why">Agent-designed chips fail on physics nobody checked. This box gives agents measured ground truth from real silicon: temperature, power, clock and pin behaviour.</dd></div>
+      <div><dt>How an agent uses it</dt><dd id="agent">set_temperature → wait for "stable" → sweep the clock → read pass/fail and power → build a shmoo map of frequency against temperature.</dd></div>
+    </dl>
+    <div class="tournav"><button id="prevBtn">◀ Prev</button><span id="step">Tour: 15 stops</span><button id="nextBtn">Next ▶</button></div>
+    <ol class="tour" id="list"></ol>
+    <p class="note">Positions on the board are photo estimates until Alex measures his board (102 MEASURE values in params.py). Generated from cad/lab-box/box.py.</p>
+  </aside>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+// Each group: [regex on part name, kind, title, what, why, agent use]
+const G = [
+ [/^(HS10 heater|HS10 tags|HS10 M2)/,"Knob · heat","Heater (HS10, 18 Ω)","A small aluminium-cased power resistor. Current through it turns into heat, about 8 W at 12 V.","It is the temperature knob. Chips slow down as they warm up; this is how the box makes that happen on purpose.","Never driven directly. The agent calls set_temperature(°C) and the Pico pulses the heater until the chip holds that temperature."],
+ [/^(spreader|pad 0\.5|thermocouple)/,"Eye · chip temp","Spreader block + thermocouple","An 18 × 18 mm aluminium block pressed on the FPGA through an insulating pad, with a thermocouple bead in a groove in its face.","Spreads heat evenly over the package while staying off the 144 live leads, and measures the package-top temperature (T_top) right where heat enters.","read_sensors() returns T_top. It reads a few kelvin above the die while heating, so data is labelled T_top, not junction temperature."],
+ [/^(bridge|legs|keel|top plate|pressure|steel ball|spring|M6|bridge screws|keel)/,"Mechanism","Clamp (metal C-frame)","An aluminium bridge on brass legs, tied to a keel on the floor. A spring presses a steel ball onto a pressure bar above the heater stack, about 8 N.","Same contact force every run, so the same heater power gives the same temperature. All metal, so it does not creep when warm.","Indirect: repeatable force is what makes one run comparable with the next, and one box with another. The spring scale lets a calibration step record the force."],
+ [/^(KSD9700|Kapton under|FR4 strap|strap)/,"Safety","Thermostat (KSD9700)","A bimetal switch that opens the heater circuit if the clamp passes its trip point (75 °C, ±5).","A hardware backstop. If the software or a MOSFET fails, the heater still shuts off before the chip passes its 85 °C limit.","None. The agent cannot override it; that is the point."],
+ [/^(fuse holder|12V panel)/,"Safety · power","12 V heater inlet + 1 A fuse","A barrel jack for a 12 V plug pack, then a panel fuse you can change from outside.","The heater runs on its own supply, kept apart from the FPGA's, and the fuse limits any fault.","None directly. A blown fuse shows up as 'heater on, temperature not rising', which the self-test reports."],
+ [/^(D4184|AO3400)/,"Driver","MOSFET switch modules","Electronic switches the Pico turns on and off thousands of times a second: an opto-isolated D4184 for the heater, an AO3400 for the fan.","The Pico's 3.3 V pins cannot power a heater or fan themselves; these switch the real current.","Through the Pico's control loop: heater duty and fan speed come from set_temperature and set_airflow."],
+ [/^(fan|BME280)/,"Knob · air / Eye · air temp","Fan + intake air sensor","A 40 mm fan blowing room air across the board, with a BME280 sensor in the intake duct.","The fan pulls temperature down and makes settling faster and repeatable. The air sensor separates 'the room is hot' from 'the chip is hot'.","set_airflow(%) and read_sensors() → ambient °C. During a sweep the fan runs at a fixed duty so airflow is the same every run."],
+ [/^(INA226|USB-C 5V|R\/A DC plug|5V load switch|board DC jack|USB-B blank|USB-B socket|power switch|switch cap)/,"Eye · power","Metered 5 V path","5 V enters on USB-C, passes through the INA226 current sensor and an on/off switch the Pico controls, then into the board's DC jack. The board's own USB-B is blocked.","Power drawn per experiment is data agents never normally see. Blocking the other inlet makes sure the board can only run through the meter.","read_sensors() → board current and power; power_cycle() lets an agent restart a hung board with nobody there. This is whole-board power, not core-only."],
+ [/^(Si5351|CLK-IN)/,"Knob · clock","Clock generator (Si5351)","A programmable clock chip feeding header pin P1-34, which reaches the FPGA's dedicated clock input PIN_24. A printed shroud stops the lead landing on a power pin.","One part replaces a drawer of crystals: any frequency from kHz to 160 MHz, set in software.","set_clock(MHz). The agent steps the clock past the design's limit at each temperature to find where it starts failing."],
+ [/^(logic analyser|LA comb)/,"Eye · pins","Logic analyser","An 8-channel USB logic analyser clipped onto reserved header pins, held by a comb.","An independent view of what the FPGA's pins actually do, from outside the chip, so the chip is not grading its own homework.","capture(channels, trigger) returns waveforms the agent can compare with what the design was meant to do."],
+ [/^(Pico|star ground|MAX31855)/,"Brain","Pico controller + thermocouple amp","A Raspberry Pi Pico 2 running the control loops, with the MAX31855 that reads the thermocouple. All module grounds meet at one star point.","One controller owns every off-chip knob and sensor, so the agent asks for a temperature instead of fiddling with heater duty.","USB serial from the host. A future MCP server wraps it as set_temperature, set_clock, set_airflow, read_sensors, power_cycle."],
+ [/^(USB-Blaster|Blaster|JTAG|ribbon)/,"Link","USB-Blaster (JTAG)","The programmer that loads bitstreams into the FPGA, kept inside the box with its plug permanently seated.","Unplugging JTAG while the board is powered can destroy the FPGA, and an unattended box should never need a hand on the cable.","program(bitstream) and reads of the on-chip lab region (cycle counters, capture buffer, ring-oscillator sensor)."],
+ [/^(FPGA EP4CE6|FPGA lead ring)/,"Device under test","The FPGA (Cyclone IV EP4CE6)","The chip being tested: 6,272 logic elements in a 20 × 20 mm package, rated to 85 °C.","Everything in the box exists to change this chip's conditions and measure how it responds.","The agent loads a self-checking design, then sweeps temperature and clock to map where it passes and fails."],
+ [/^(back post)/,"Mechanism","Back-support post","A post under the PCB, right below the chip, with a nylon tip.","Stops the board bending under the clamp force, which could crack solder joints.","None; it keeps the mechanics honest."],
+ [/^(base tub|lid|acrylic|W I\/O panel|module plate|captive|window screws|rubber feet|ribbon clip|cable clamp|Blaster cable|module-plate|clamp \+ clip)/,"Enclosure","Enclosure","A PETG tub, a lid with a clear acrylic window, a drop-in I/O panel and a module plate, with engraved labels at every port.","Holds everything in a fixed place so airflow and wiring are the same every run, and looks deliberate for a demo.","Indirect: fixed geometry makes boxes identical, so a fleet of agents can compare data across units."],
+];
+const OTHER=["Reference","Board feature","Part of the FPGA dev board or a fastener, modelled so the CAD can check nothing collides with it.","Real parts take up real space; the clearance checks need them in the model.","None directly."];
+function info(name){for(const g of G) if(g[0].test(name)) return g; return [null,...OTHER];}
+
+const stage=document.getElementById('stage');
+const scene=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(35,1,1,5000);
+const ren=new THREE.WebGLRenderer({antialias:true,alpha:true});
+ren.setPixelRatio(Math.min(devicePixelRatio,2)); stage.appendChild(ren.domElement);
+scene.add(new THREE.AmbientLight(0xffffff,0.55));
+scene.add(new THREE.HemisphereLight(0xffffff,0x8899aa,0.8));
+const dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(200,400,300); scene.add(dl);
+const dl2=new THREE.DirectionalLight(0xffffff,0.4); dl2.position.set(-300,200,-200); scene.add(dl2);
+ren.outputEncoding=THREE.sRGBEncoding;
+const ctl=new THREE.OrbitControls(cam,ren.domElement); ctl.enableDamping=true;
+const root=new THREE.Group(); root.rotation.x=-Math.PI/2; scene.add(root);
+let meshes=[], selected=null, isolated=false, home=null;
+const LID=/^(lid|acrylic|captive|window screws|base tub|W I\/O panel|rubber feet)/;
+
+function fit(){const r=stage.getBoundingClientRect(); ren.setSize(r.width,r.height,false); cam.aspect=r.width/Math.max(r.height,1); cam.updateProjectionMatrix();}
+new ResizeObserver(fit).observe(stage); fit();
+
+new THREE.GLTFLoader().load('lab_box.json',g=>{
+  root.add(g.scene);
+  g.scene.traverse(o=>{ if(!o.isMesh) return;
+    const name=(o.name||o.parent.name).replace(/^\d+_/,'');
+    o.userData.name=name;
+    if(!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+    const vc=!!o.geometry.attributes.color;
+    const m=new THREE.MeshStandardMaterial({color:vc?0xffffff:(o.material.color||new THREE.Color(0xaaaaaa)),vertexColors:vc,metalness:0,roughness:0.7,flatShading:true,side:THREE.DoubleSide});
+    if(LID.test(name)){m.transparent=true; m.opacity=name.startsWith('acrylic')?0.18:0.55;}
+    o.material=m; o.userData.base=m;
+    const x=m.clone(); x.transparent=true; x.opacity=0.12; x.depthWrite=false; o.userData.xray=x; meshes.push(o);});
+  paint();
+  const box=new THREE.Box3().setFromObject(root), c=box.getCenter(new THREE.Vector3()), s=box.getSize(new THREE.Vector3()).length();
+  ctl.target.copy(c); cam.position.set(c.x+s*0.55,c.y+s*0.6,c.z+s*0.75); home=cam.position.clone();
+  document.getElementById('loading').hidden=true; buildList();
+},undefined,()=>{document.getElementById('loading').textContent='Could not load the model.';});
+
+const hi=new THREE.MeshStandardMaterial({color:0xf08a4b,emissive:0x5a2000});
+function select(name){
+  selected=name; const [,kind,title,what,why,agent]=info(name);
+  const grp=info(name)[0];
+  paint();
+  for(const [id,v] of [['kind',kind],['title',title],['what',what],['why',why],['agent',agent]]) document.getElementById(id).textContent=v;
+  document.getElementById('partname').textContent='Part: '+name;
+}
+const ray=new THREE.Raycaster(), mp=new THREE.Vector2(); let down=null;
+ren.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
+ren.domElement.addEventListener('pointerup',e=>{ if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5) return;
+  const r=ren.domElement.getBoundingClientRect(); mp.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
+  ray.setFromCamera(mp,cam); const hit=ray.intersectObjects(meshes.filter(o=>o.visible&&!(o.userData.name.startsWith('acrylic'))),false)[0];
+  if(hit) select(hit.object.userData.name);});
+let lidOn=false, xray=false;
+function inSel(o){ if(!selected) return false; const g=info(selected)[0]; return g?g.test(o.userData.name):o.userData.name===selected; }
+function paint(){ meshes.forEach(o=>{ const s=inSel(o), lid=LID.test(o.userData.name);
+  o.material = s?hi:(xray?o.userData.xray:o.userData.base);
+  o.visible = isolated ? s : !(lid&&!lidOn);
+  o.renderOrder = s?1:0; }); }
+const xrayBtn=document.getElementById('xrayBtn');
+xrayBtn.onclick=()=>{xray=!xray; xrayBtn.setAttribute('aria-pressed',xray); paint();};
+const lidBtn=document.getElementById('lidBtn');
+lidBtn.onclick=()=>{lidOn=!lidOn; lidBtn.setAttribute('aria-pressed',lidOn); lidBtn.textContent=lidOn?'Hide case':'Show case';
+  paint();};
+const isoBtn=document.getElementById('isoBtn');
+isoBtn.onclick=()=>{ if(!selected) return; isolated=!isolated; isoBtn.setAttribute('aria-pressed',isolated); select(selected);};
+document.getElementById('resetBtn').onclick=()=>{ if(home){cam.position.copy(home);} isolated=false; isoBtn.setAttribute('aria-pressed',false);
+  selected=null; paint();};
+// Tour order follows one experiment: the chip, how it is heated and held, the safety chain, the brain, then the other knobs and eyes.
+const TOUR=[12,1,0,2,13,3,4,5,10,6,7,8,9,11,14];
+let stop=-1, stops=[];
+function focusSel(){ const box=new THREE.Box3(); meshes.forEach(o=>{if(inSel(o)) box.expandByObject(o);}); if(box.isEmpty()) return;
+  const c=box.getCenter(new THREE.Vector3()), r=Math.max(box.getSize(new THREE.Vector3()).length(),40);
+  const dir=cam.position.clone().sub(ctl.target).normalize(); ctl.target.copy(c); cam.position.copy(c).addScaledVector(dir,r*1.8); }
+function goStop(i){ stop=(i+stops.length)%stops.length; const s=stops[i<0?stops.length-1:stop];
+  if(TOUR[stop]===14 && !lidOn){ lidBtn.click(); }
+  select(s.name); focusSel();
+  document.getElementById('step').textContent=`Stop ${stop+1} of ${stops.length}`;
+  document.querySelectorAll('.tour button').forEach((b,j)=>b.setAttribute('aria-current',j===stop));}
+function buildList(){const l=document.getElementById('list');
+  TOUR.forEach(gi=>{const g=G[gi]; const first=meshes.find(o=>g[0].test(o.userData.name)); if(!first) return;
+    const idx=stops.length; stops.push({name:first.userData.name});
+    const li=document.createElement('li'), b=document.createElement('button');
+    b.innerHTML=`<span></span><small></small>`; b.firstChild.textContent=g[2]; b.lastChild.textContent=g[1];
+    b.onclick=()=>goStop(idx); li.appendChild(b); l.appendChild(li);});
+  document.getElementById('step').textContent=`Tour: ${stops.length} stops`;}
+document.getElementById('nextBtn').onclick=()=>goStop(stop+1);
+document.getElementById('prevBtn').onclick=()=>goStop(stop<=0?stops.length-1:stop-1);
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')goStop(stop+1); if(e.key==='ArrowLeft')goStop(stop<=0?stops.length-1:stop-1);});
+(function loop(){requestAnimationFrame(loop); ctl.update(); ren.render(scene,cam);})();
+</script>
